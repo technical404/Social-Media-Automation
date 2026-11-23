@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHeader } from "@/components/app-shell";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { groupPostsByTopic } from "@/lib/post-groups";
 import * as repo from "@/lib/repo";
 
 export const Route = createFileRoute("/_app/post-calendar")({
@@ -17,19 +18,7 @@ function PostCal() {
   const scheduled = posts.filter((p) => p.scheduled_at || p.status === "scheduled");
   const visible = scheduled.filter((p) => clientFilter === "all" || p.client_id === clientFilter);
 
-  const groups = new Map<string, repo.PostRow[]>();
-  for (const p of visible) {
-    const key = p.topic.trim() || "General posts";
-    const list = groups.get(key) ?? [];
-    list.push(p);
-    groups.set(key, list);
-  }
-  const grouped = [...groups.entries()]
-    .map(([topic, rows]) => ({
-      topic,
-      rows: [...rows].sort((a, b) => (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? "")),
-    }))
-    .sort((a, b) => (a.rows[0]?.scheduled_at ?? "").localeCompare(b.rows[0]?.scheduled_at ?? ""));
+  const grouped = groupPostsByTopic(visible);
 
   return (
     <div className="space-y-6">

@@ -1,0 +1,6 @@
+select count(*) from events -> [(36,)]
+select count(*) from events where publish_status='scheduled' and approval_status!='approved' -> [(0,)]
+select default_time,timezone from calendars -> [('10:30', 'Asia/Kolkata')]
+select heartbeat_at from scheduler_jobs -> [('2026-11-04T09:58:18.216Z',)]
+select count(*) from activity_logs -> [(12,)]
+select provider_name, task, ok from ai_request_logs -> [('Test provider', 'connection_test', 1), ('Test provider', 'event_calendar', 1)]

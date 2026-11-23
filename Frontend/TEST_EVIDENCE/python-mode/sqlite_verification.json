@@ -1,0 +1,41 @@
+{
+ "events": 36,
+ "approved": 35,
+ "pending": [
+  [
+   "Leap day special"
+  ]
+ ],
+ "scheduled": 35,
+ "unapproved_scheduled": 0,
+ "default_time": "10:30",
+ "overrides": [
+  [
+   "2028-01-15",
+   "Medical & healthcare mid-month tips",
+   "18:45"
+  ],
+  [
+   "2028-02-15",
+   "Medical & healthcare community Q&A",
+   "18:45"
+  ],
+  [
+   "2028-02-15",
+   "Medical & healthcare mid-month tips",
+   "18:45"
+  ]
+ ],
+ "feb29": [
+  [
+   "Leap day special"
+  ]
+ ],
+ "runs": [
+  [
+   "committed",
+   37,
+   3
+  ]
+ ]
+}

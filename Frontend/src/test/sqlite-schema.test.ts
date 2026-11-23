@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import initSqlJs from "sql.js";
+import { MIGRATIONS } from "@/lib/db/migrations";
+import { migrate, sqlAll, sqlRun } from "@/lib/db/sqljs-core";
+
+async function freshDb() {
+  const SQL = await initSqlJs();
+  const db = new SQL.Database();
+  migrate(db, MIGRATIONS);
+  db.run("INSERT INTO calendars(id, name, default_time) VALUES ('c1','Med','09:00')");
+  return db;
+}
+
+describe("local SQLite schema", () => {
+  it("applies migrations once and records them", async () => {
+    const db = await freshDb();
+    expect(migrate(db, MIGRATIONS)).toEqual([]);
+    expect(sqlAll(db, "SELECT version FROM schema_migrations").length).toBe(MIGRATIONS.length);
+  });
+  it("blocks two events with the same name on the same date in one calendar", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','c1','World Health Day','2027-04-07','2027-04-07')");
+    expect(() => db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e2','c1','world health day','2027-04-07','2027-04-07')")).toThrow(/UNIQUE/);
+    // a different event on the same day is fine (multiple events per day)
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e3','c1','Nurses Day','2027-04-07','2027-04-07')");
+  });
+  it("rejects an end date before the start date", async () => {
+    const db = await freshDb();
+    expect(() => db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','c1','X','2027-04-07','2027-04-01')")).toThrow(/CHECK/);
+  });
+  it("deleting a calendar deletes its events", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','c1','X','2027-04-07','2027-04-07')");
+    sqlRun(db, "DELETE FROM calendars WHERE id = 'c1'");
+    expect(sqlAll(db, "SELECT * FROM events").length).toBe(0);
+  });
+  it("links a client's calendar through calendars.client_id", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO calendars(id, name, client_id) VALUES ('cc1','Acme calendar','cl1')");
+    const rows = sqlAll<{ client_id: string }>(db, "SELECT client_id FROM calendars WHERE id = 'cc1'");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.client_id).toBe("cl1");
+    // planner calendars (client_id NULL) are distinct from client calendars
+    const owned = sqlAll(db, "SELECT id FROM calendars WHERE client_id IS NOT NULL");
+    expect(owned.length).toBe(1);
+  });
+  it("removing a client's calendars cascades to their events", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO calendars(id, name, client_id) VALUES ('cc1','Acme calendar','cl1')");
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','cc1','X','2027-04-07','2027-04-07')");
+    // mirrors repo.deleteClient: drop the client's calendars, then the client.
+    // the seeded planner calendar 'c1' (client_id NULL) is untouched.
+    sqlRun(db, "DELETE FROM calendars WHERE client_id = 'cl1'");
+    sqlRun(db, "DELETE FROM clients WHERE id = 'cl1'");
+    expect(sqlAll(db, "SELECT * FROM calendars").length).toBe(1);
+    expect(sqlAll(db, "SELECT * FROM events").length).toBe(0);
+    expect(sqlAll(db, "SELECT * FROM clients").length).toBe(0);
+  });
+
+  it("marks a calendar as global and defaults the rest to non-global", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO calendars(id, name, is_global, scope) VALUES ('g1','Global Calendar',1,'GLOBAL')");
+    const rows = sqlAll<{ id: string; is_global: number; scope: string }>(db, "SELECT id, is_global, scope FROM calendars ORDER BY id");
+    expect(rows.find((r) => r.id === "g1")).toMatchObject({ is_global: 1, scope: "GLOBAL" });
+    expect(rows.find((r) => r.id === "c1")).toMatchObject({ is_global: 0, scope: "GLOBAL" });
+  });
+
+  it("keeps one row per observance code per year (a code repeats next year)", async () => {
+    const db = await freshDb();
+    const ins = (id: string, date: string) =>
+      `INSERT INTO events(id, calendar_id, name, start_date, end_date, event_code) VALUES ('${id}','c1','India Independence Day','${date}','${date}','IN-INDIA-INDEPENDENCE-DAY-0815')`;
+    db.run(ins("e1", "2026-08-15"));
+    // same code + same year is refused, even with a different id
+    expect(() => db.run(ins("e2", "2026-08-15"))).toThrow(/UNIQUE/);
+    // the same code in another year is a new row
+    db.run(ins("e3", "2027-08-15"));
+    expect(sqlAll(db, "SELECT * FROM events WHERE event_code IS NOT NULL").length).toBe(2);
+  });
+
+  it("stores per-client state keyed by calendar and event", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO calendars(id, name, client_id, scope) VALUES ('cc1','Acme calendar','cl1','IN')");
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','c1','X','2027-04-07','2027-04-07')");
+    db.run("INSERT INTO client_event_state(calendar_id, event_id, time_override, approval_status) VALUES ('cc1','e1','18:30','approved')");
+    const rows = sqlAll<{ time_override: string; approval_status: string }>(db, "SELECT time_override, approval_status FROM client_event_state WHERE calendar_id = 'cc1' AND event_id = 'e1'");
+    expect(rows[0]).toMatchObject({ time_override: "18:30", approval_status: "approved" });
+  });
+
+  it("removing a client calendar drops its per-client state", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO calendars(id, name, client_id) VALUES ('cc1','Acme calendar','cl1')");
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','c1','X','2027-04-07','2027-04-07')");
+    db.run("INSERT INTO client_event_state(calendar_id, event_id, time_override) VALUES ('cc1','e1','18:30')");
+    sqlRun(db, "DELETE FROM calendars WHERE id = 'cc1'");
+    expect(sqlAll(db, "SELECT * FROM client_event_state").length).toBe(0);
+  });
+});

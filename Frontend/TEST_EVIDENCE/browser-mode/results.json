@@ -1,0 +1,132 @@
+[
+ {
+  "step": "opens straight into dashboard (no login)",
+  "ok": true,
+  "detail": "http://localhost:8080/dashboard"
+ },
+ {
+  "step": "storage mode shown",
+  "ok": true,
+  "detail": "Data: this browser"
+ },
+ {
+  "step": "test provider added and connection test passes",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "AI proposal shown in preview, not saved",
+  "ok": true,
+  "detail": "37 proposals"
+ },
+ {
+  "step": "validation rejected bad items with reasons",
+  "ok": true,
+  "detail": "Outside the period \u2014 Date 1999-01-01 is outside the requested period. | Broken date \u2014 Invalid date \"2028-02-30\". | Medical & healthcare monthly kickoff \u2014 Duplicate of an event already listed."
+ },
+ {
+  "step": "approval blocked until medical review ticked",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "explicit approval saved selected proposals only",
+  "ok": true,
+  "detail": "36 of 37"
+ },
+ {
+  "step": "three months in one row",
+  "ok": true,
+  "detail": "January 2028 | February 2028 | March 2028"
+ },
+ {
+  "step": "months side by side (same row)",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "leap year: February 2028 has 29 days",
+  "ok": true,
+  "detail": "29 days"
+ },
+ {
+  "step": "weekday alignment: Feb 1 2028 is a Tuesday (1 blank Monday cell before it)",
+  "ok": true,
+  "detail": "1 blank cell(s)"
+ },
+ {
+  "step": "global default time applied",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "multi-date selection + individual override",
+  "ok": true,
+  "detail": "2 dates selected \u00b7 3 events"
+ },
+ {
+  "step": "overrides keep priority over new global default",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "list view tiles with MM/DD/YYYY",
+  "ok": true,
+  "detail": "01/01/2028"
+ },
+ {
+  "step": "tile times: override 18:45 vs default 10:30",
+  "ok": true,
+  "detail": "15th=18:45 1st=10:30"
+ },
+ {
+  "step": "search filter",
+  "ok": true,
+  "detail": "1 tile"
+ },
+ {
+  "step": "sort by date descending",
+  "ok": true,
+  "detail": "12/15/2028"
+ },
+ {
+  "step": "bulk schedule of approved events",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "editing an approved event sends it back to review",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "step": "CSV export",
+  "ok": true,
+  "detail": "36 rows, header: date,end_date,time,timezone,name,short_description,category,"
+ },
+ {
+  "step": "events persist after restart (reload)",
+  "ok": true,
+  "detail": "36 tiles"
+ },
+ {
+  "step": "dashboard counts from database",
+  "ok": true,
+  "detail": "{\"Events\": \"36\", \"Needs review\": \"1\", \"Approved\": \"35\", \"Scheduled\": \"35\"}"
+ },
+ {
+  "step": "integrity check",
+  "ok": true,
+  "detail": "Result: ok"
+ },
+ {
+  "step": "SQLite verification",
+  "ok": true,
+  "detail": "{\"events\": 36, \"approved\": 35, \"pending\": [[\"Leap day special\"]], \"scheduled\": 35, \"unapproved_scheduled\": 0, \"default_time\": \"10:30\", \"overrides\": [[\"2028-01-15\", \"Medical & healthcare mid-month tips\", \"18:45\"], [\"2028-02-15\", \"Medical & healthcare community Q&A\", \"18:45\"], [\"2028-02-15\", \"Medical & healthcare mid-month tips\", \"18:45\"]], \"feb29\": [[\"Leap day special\"]], \"runs\": [[\"committed\", 37,"
+ },
+ {
+  "step": "no page errors",
+  "ok": true,
+  "detail": ""
+ }
+]

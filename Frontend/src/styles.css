@@ -1,0 +1,220 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system: "Field Planner" — warm paper, deep forest ink, coral highlights.
+ * All colors are oklch tokens. Components use semantic utilities only.
+ */
+
+@theme inline {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-highlight: var(--highlight);
+  --color-highlight-foreground: var(--highlight-foreground);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.75rem;
+  --paper: oklch(0.975 0.012 85);
+  --ink: oklch(0.24 0.035 165);
+  --background: oklch(0.975 0.012 85);
+  --foreground: oklch(0.24 0.035 165);
+  --card: oklch(0.993 0.006 85);
+  --card-foreground: oklch(0.24 0.035 165);
+  --popover: oklch(0.993 0.006 85);
+  --popover-foreground: oklch(0.24 0.035 165);
+  --primary: oklch(0.42 0.085 165);
+  --primary-foreground: oklch(0.98 0.01 85);
+  --secondary: oklch(0.93 0.025 120);
+  --secondary-foreground: oklch(0.28 0.04 165);
+  --muted: oklch(0.945 0.015 85);
+  --muted-foreground: oklch(0.5 0.03 160);
+  --accent: oklch(0.92 0.05 55);
+  --accent-foreground: oklch(0.35 0.09 40);
+  --highlight: oklch(0.7 0.16 40);
+  --highlight-foreground: oklch(0.99 0.01 85);
+  --success: oklch(0.58 0.13 155);
+  --success-foreground: oklch(0.99 0.01 85);
+  --warning: oklch(0.8 0.14 80);
+  --warning-foreground: oklch(0.3 0.06 70);
+  --destructive: oklch(0.56 0.2 28);
+  --destructive-foreground: oklch(0.99 0.01 85);
+  --border: oklch(0.89 0.02 90);
+  --input: oklch(0.87 0.02 90);
+  --ring: oklch(0.55 0.1 165);
+  --chart-1: oklch(0.42 0.085 165);
+  --chart-2: oklch(0.7 0.16 40);
+  --chart-3: oklch(0.8 0.14 80);
+  --chart-4: oklch(0.58 0.13 155);
+  --chart-5: oklch(0.55 0.1 250);
+  --sidebar: oklch(0.26 0.04 165);
+  --sidebar-foreground: oklch(0.92 0.02 90);
+  --sidebar-primary: oklch(0.7 0.16 40);
+  --sidebar-primary-foreground: oklch(0.99 0.01 85);
+  --sidebar-accent: oklch(0.32 0.045 165);
+  --sidebar-accent-foreground: oklch(0.98 0.01 85);
+  --sidebar-border: oklch(0.34 0.04 165);
+  --sidebar-ring: oklch(0.7 0.16 40);
+
+  --shadow-soft: 0 1px 2px oklch(0.24 0.035 165 / 6%), 0 8px 24px -12px oklch(0.24 0.035 165 / 18%);
+  --shadow-lift: 0 2px 4px oklch(0.24 0.035 165 / 8%), 0 18px 40px -18px oklch(0.24 0.035 165 / 30%);
+  --gradient-hero: radial-gradient(1200px 500px at 85% -10%, oklch(0.92 0.05 55 / 70%), transparent 60%),
+    radial-gradient(900px 400px at -10% 110%, oklch(0.93 0.025 120 / 80%), transparent 60%);
+}
+
+.dark {
+  --background: oklch(0.2 0.03 165);
+  --foreground: oklch(0.95 0.01 85);
+  --card: oklch(0.24 0.035 165);
+  --card-foreground: oklch(0.95 0.01 85);
+  --popover: oklch(0.24 0.035 165);
+  --popover-foreground: oklch(0.95 0.01 85);
+  --primary: oklch(0.75 0.1 165);
+  --primary-foreground: oklch(0.2 0.03 165);
+  --secondary: oklch(0.3 0.04 165);
+  --secondary-foreground: oklch(0.95 0.01 85);
+  --muted: oklch(0.28 0.03 165);
+  --muted-foreground: oklch(0.72 0.03 160);
+  --accent: oklch(0.35 0.06 40);
+  --accent-foreground: oklch(0.95 0.01 85);
+  --destructive: oklch(0.65 0.2 28);
+  --destructive-foreground: oklch(0.99 0.01 85);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.75 0.1 165);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /*
+   * Layout safety: no element may paint over its neighbour.
+   *
+   * Flex and grid items default to `min-width: auto`, i.e. they refuse to shrink below their
+   * content, so a long label pushes outside its own box and lands on top of the next element.
+   * `:where()` keeps specificity at zero, so any utility (`min-w-0`, `min-w-96`, …) still wins
+   * and an item that really needs its intrinsic width can opt out with `min-w-intrinsic`.
+   */
+  :where(.flex, .inline-flex, .grid, .inline-grid) > * {
+    min-width: 0;
+  }
+
+  /* Unbreakable strings (long names, URLs, codes) wrap instead of spilling sideways. */
+  :where(p, li, dd, dt, td, th, label, a, button, span, div, small, strong, em, h1, h2, h3, h4, h5, h6) {
+    overflow-wrap: break-word;
+  }
+
+  /* Media can never be wider than the box that holds it. */
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+  }
+
+  img,
+  video {
+    height: auto;
+  }
+}
+
+/* Opt out of the shrink-by-default rule for items that genuinely need their intrinsic width. */
+@utility min-w-intrinsic {
+  min-width: auto;
+}
+
+/* Dev-only overlay (see components/dev-layout-guard.tsx). The attribute is only ever set in dev. */
+html.layout-guard-highlight [data-layout-issue="overlap"] {
+  outline: 2px solid #e11d48 !important;
+  outline-offset: 1px;
+}
+html.layout-guard-highlight [data-layout-issue="escape"] {
+  outline: 2px solid #f59e0b !important;
+  outline-offset: 1px;
+}
+html.layout-guard-highlight [data-layout-issue="clipped"] {
+  outline: 2px dashed #0ea5e9 !important;
+  outline-offset: 1px;
+}
+
+@utility shadow-soft {
+  box-shadow: var(--shadow-soft);
+}
+@utility shadow-lift {
+  box-shadow: var(--shadow-lift);
+}
+@utility bg-hero {
+  background-image: var(--gradient-hero);
+}
+@utility font-display {
+  font-family: var(--font-display);
+}

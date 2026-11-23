@@ -1,0 +1,16 @@
+Frontend/node_modules/
+Frontend/data/*
+!Frontend/data/legacy/
+Frontend/data/legacy/*
+!Frontend/data/legacy/cloud-export.json
+**/__pycache__/
+*.pyc
+.tanstack/
+.nitro/
+.output/
+dist/
+
+# Local environment files (never commit)
+.env
+.env.*
+!.env.example

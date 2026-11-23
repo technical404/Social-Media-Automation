@@ -1,0 +1,14 @@
+== after backend restart ==
+{"ok": true, "version": "0.1.0", "db_path": "/tmp/sai-data/socialai.sqlite", "schema": "001_init", "worker": {"running": true, "heartbeat_at": "2026-11-04T09:58:41.085Z"}, "time": "2026-11-04T09:58:43.762Z"}
+{"rows": [{"events": 36, "overrides": 3}], "changes": 0}
+== other website is refused ==
+403
+== main.py --status ==
+[ OK ] Backend  http://127.0.0.1:8765  pid=-
+[ OK ] Frontend http://localhost:8080  pid=-
+[ OK ] Worker heartbeat 2026-11-04T09:58:41.085Z, schema 001_init
+== main.py --backup ==
+[ OK ] Backup written and verified: /tmp/sai-data/backups/socialai-manual-20261104-095844.sqlite
+== restore refused while running ==
+[FAIL] Stop the app first: python main.py --stop
+exit 1

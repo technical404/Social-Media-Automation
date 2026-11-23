@@ -197,14 +197,15 @@ export function EventWorkspace({
         <p className="mt-2 text-[11px] text-muted-foreground">Platforms: {platforms.length ? platforms.map((p) => PLATFORM_LABEL[p] ?? p).join(", ") : "none chosen yet"}</p>
         <div className="mt-auto flex items-center gap-1 pt-3">
           {timeCell(e)}
-          {reference ? (
+          {reference && !e.client_id ? (
             <>
               <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">From Global Calendar</span>
               <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Remove ${e.name} from this client`} onClick={() => ask({ title: "Remove from this client's calendar?", body: `“${e.name}” stays in the Global Calendar but will be hidden for this client.`, label: "Remove", action: async () => { await repo.deleteEvents([e.id], writeCal); refresh(); } })}><Trash2 /></Button>
             </>
           ) : (
             <>
-              <Button size="icon" variant="ghost" className="ml-auto h-8 w-8" aria-label={`Edit ${e.name}`} onClick={() => setEditing(e)}><Pencil /></Button>
+              {e.client_id && <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">Client event</span>}
+              <Button size="icon" variant="ghost" className={e.client_id ? "h-8 w-8" : "ml-auto h-8 w-8"} aria-label={`Edit ${e.name}`} onClick={() => setEditing(e)}><Pencil /></Button>
               <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Delete ${e.name}`} onClick={() => ask({ title: "Delete this event?", body: `“${e.name}” on ${formatMDY(e.start_date)} will be removed.`, label: "Delete", action: async () => { await repo.deleteEvents([e.id], writeCal); refresh(); } })}><Trash2 /></Button>
             </>
           )}

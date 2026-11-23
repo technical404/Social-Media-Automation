@@ -88,6 +88,9 @@ export type PlanRequest = {
   region: string;
   theme: string;
   maxEvents: number;
+  /** When set, the generated events belong to this client instead of the Global Calendar. */
+  client_id?: string | null;
+  client_name?: string | null;
 };
 
 export function addDays(iso: string, n: number): string {
@@ -152,6 +155,7 @@ export function buildEventPrompt(req: PlanRequest): { system: string; user: stri
     `Industry: ${req.industry || "general"}.`,
     req.region ? `Country/region: ${req.region}.` : "",
     req.theme ? `Theme: ${req.theme}.` : "",
+    req.client_name ? `Client: ${req.client_name}.` : "",
     `Find events ${scopeText}.`,
     `At most ${req.maxEvents} events, sorted by date.`,
   ]
@@ -227,17 +231,18 @@ export function parseModelJson(text: string, finishReason?: string | null): Stri
 }
 
 /**
- * Recover complete event objects from an answer that the provider cut off.
- * Only whole objects are returned; an incomplete trailing event is dropped.
- * Callers must still run validateProposals() on the result.
+ * Recover complete objects from an answer that the provider cut off.
+ * Only whole objects are returned; an incomplete trailing object is dropped.
+ * `key` is the array property in the JSON object (events, topics, ...).
+ * Callers must still run their own validation on the result.
  */
-export function salvageTruncatedEvents(text: string): unknown[] {
+export function salvageTruncatedArray(text: string, key: string): unknown[] {
   const trimmed = (text ?? "").trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*)$/);
   const body = (fenced ? fenced[1] : trimmed) ?? "";
-  const key = body.search(/"events"\s*:\s*\[/);
-  if (key < 0) return [];
-  const start = body.indexOf("[", key);
+  const keyAt = body.search(new RegExp(`"${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\s*:\\s*\\[`));
+  if (keyAt < 0) return [];
+  const start = body.indexOf("[", keyAt);
   if (start < 0) return [];
   const out: unknown[] = [];
   let depth = 0;
@@ -269,6 +274,11 @@ export function salvageTruncatedEvents(text: string): unknown[] {
     }
   }
   return out;
+}
+
+/** Backwards-compatible event-specific helper. */
+export function salvageTruncatedEvents(text: string): unknown[] {
+  return salvageTruncatedArray(text, "events");
 }
 
 type RawItem = Partial<Record<"name" | "title" | "start_date" | "date" | "end_date" | "event_kind" | "importance" | "hashtags" | "short_description" | "description" | "detailed_description" | "category" | "source_url" | "campaign_topic" | "content_format" | "image_prompt" | "video_prompt", unknown>> | null;

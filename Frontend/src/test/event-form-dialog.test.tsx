@@ -19,6 +19,7 @@ vi.mock("sonner", () => ({
 const eventRow: repo.EventRow = {
   id: "ev-1",
   calendar_id: "cal-1",
+  client_id: null,
   name: "Existing event",
   short_description: "",
   detailed_description: "",

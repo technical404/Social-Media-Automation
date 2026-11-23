@@ -121,6 +121,12 @@ describe("strict JSON from the AI", () => {
     expect(system).toMatch(/do not wrap it in markdown/i);
   });
 
+  it("names the client when the request is client-specific", () => {
+    const base = req({ scope: "month", year: 2026, month: 11 });
+    const { user } = buildEventPrompt({ ...base, client_id: "c1", client_name: "Acme" });
+    expect(user).toMatch(/Client: Acme\./);
+  });
+
   it("keeps the prompt compact enough for a small output limit", () => {
     const { system } = buildEventPrompt(req({ scope: "month", year: 2026, month: 11 }));
     const shape = system.slice(system.indexOf("Exact shape:"));

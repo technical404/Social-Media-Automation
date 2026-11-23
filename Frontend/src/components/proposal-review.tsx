@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ThreeMonthCalendar, type DayItem } from "@/components/three-month-calendar";
-import { CATEGORIES, isMedical, type Proposal, type Rejected } from "@/lib/planner";
+import { CATEGORIES, isMedical, type PlanRequest, type Proposal, type Rejected } from "@/lib/planner";
 import { isValidISODate } from "@/lib/dates";
 import * as repo from "@/lib/repo";
 
@@ -19,7 +19,10 @@ export function ProposalReview({ run, calendar, onDone }: { run: repo.Generation
   const [reviewed, setReviewed] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const medical = isMedical(calendar.industry) || isMedical(JSON.parse(run.request).industry ?? "");
+  const request = JSON.parse(run.request) as PlanRequest;
+  const clientId = request.client_id ?? null;
+  const clientName = request.client_name ?? null;
+  const medical = isMedical(calendar.industry) || isMedical(request.industry ?? "");
   const picked = items.filter((p) => p.selected).length;
   const official = items.filter((p) => p.selected && p.event_kind === "official_observance").length;
 
@@ -44,8 +47,8 @@ export function ProposalReview({ run, calendar, onDone }: { run: repo.Generation
     if (bad) return void toast.error(`Fix "${bad.name || "unnamed"}" first — it needs a name and a valid date.`);
     setBusy(true);
     try {
-      const n = await repo.commitRun(run, calendar, items.map((p) => ({ ...p, end_date: p.end_date < p.start_date ? p.start_date : p.end_date })));
-      toast.success(`${n} events approved and saved`);
+      const n = await repo.commitRun(run, calendar, items.map((p) => ({ ...p, end_date: p.end_date < p.start_date ? p.start_date : p.end_date })), clientId);
+      toast.success(`${n} events approved and saved${clientName ? ` for ${clientName}` : ""}`, clientName ? { description: "Find them in the client's scheduler — they are not in the Global Calendar." } : undefined);
       onDone();
     } catch (e) {
       toast.error((e as Error).message);
@@ -61,7 +64,14 @@ export function ProposalReview({ run, calendar, onDone }: { run: repo.Generation
         <div>
           <p className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-accent-foreground"><Sparkles className="h-4 w-4" /> AI proposal — not saved yet</p>
           <h2 className="mt-1 text-xl font-semibold">{items.length} suggested events</h2>
-          <p className="text-sm text-muted-foreground">From {run.provider_name} ({run.model}). Untick, edit or delete anything, then approve.</p>
+          <p className="text-sm text-muted-foreground">
+            From {run.provider_name} ({run.model}).{" "}
+            {clientName ? (
+              <span className="font-semibold text-foreground">For {clientName} only — these will appear in that client's scheduler, not the Global Calendar.</span>
+            ) : (
+              "Untick, edit or delete anything, then approve."
+            )}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => save(items.map((x) => ({ ...x, selected: true })))}>Select all</Button>
@@ -166,7 +176,12 @@ export function ProposalReview({ run, calendar, onDone }: { run: repo.Generation
           <AlertDialogHeader>
             <AlertDialogTitle>Approve and save {picked} events?</AlertDialogTitle>
             <AlertDialogDescription>
-              They'll be added to “{calendar.name}” using its default time ({calendar.default_time}, {calendar.timezone}). {official > 0 && `${official} are marked as official observances by the AI — make sure you checked them. `}Nothing gets posted.
+              {clientName ? (
+                <>They'll be saved for <strong>{clientName}</strong> and appear only in that client's scheduler — not the Global Calendar. </>
+              ) : (
+                <>They'll be added to “{calendar.name}” using its default time ({calendar.default_time}, {calendar.timezone}). </>
+              )}
+              {official > 0 && `${official} are marked as official observances by the AI — make sure you checked them. `}Nothing gets posted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

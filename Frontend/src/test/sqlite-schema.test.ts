@@ -89,6 +89,26 @@ describe("local SQLite schema", () => {
     expect(rows[0]).toMatchObject({ time_override: "18:30", approval_status: "approved" });
   });
 
+  it("lets a client own an event with the same name and date as a global one", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date) VALUES ('e1','c1','World Health Day','2027-04-07','2027-04-07')");
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, client_id) VALUES ('e2','c1','World Health Day','2027-04-07','2027-04-07','cl1')");
+    const rows = sqlAll<{ id: string; client_id: string | null }>(db, "SELECT id, client_id FROM events ORDER BY id");
+    expect(rows).toEqual([{ id: "e1", client_id: null }, { id: "e2", client_id: "cl1" }]);
+    // the same client cannot have two identical copies
+    expect(() => db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, client_id) VALUES ('e3','c1','world health day','2027-04-07','2027-04-07','cl1')")).toThrow(/UNIQUE/);
+    expect(sqlAll(db, "SELECT * FROM events WHERE client_id = 'cl1'").length).toBe(1);
+  });
+
+  it("removing a client deletes its client-specific events", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, client_id) VALUES ('e1','c1','Client only','2027-04-07','2027-04-07','cl1')");
+    sqlRun(db, "DELETE FROM clients WHERE id = 'cl1'");
+    expect(sqlAll(db, "SELECT * FROM events").length).toBe(0);
+  });
+
   it("removing a client calendar drops its per-client state", async () => {
     const db = await freshDb();
     db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
@@ -97,5 +117,27 @@ describe("local SQLite schema", () => {
     db.run("INSERT INTO client_event_state(calendar_id, event_id, time_override) VALUES ('cc1','e1','18:30')");
     sqlRun(db, "DELETE FROM calendars WHERE id = 'cc1'");
     expect(sqlAll(db, "SELECT * FROM client_event_state").length).toBe(0);
+  });
+
+  it("stores topic fields and client ownership on posts", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO posts(id, client_id, platform, body, status, scheduled_at, topic, pillar, content_format) VALUES ('p1','cl1','instagram','Caption','draft','2027-02-01T10:00','Diabetes care','Education','Carousel')");
+    const rows = sqlAll<{ client_id: string; topic: string; pillar: string; content_format: string }>(db, "SELECT client_id, topic, pillar, content_format FROM posts WHERE id = 'p1'");
+    expect(rows[0]).toEqual({ client_id: "cl1", topic: "Diabetes care", pillar: "Education", content_format: "Carousel" });
+    sqlRun(db, "DELETE FROM clients WHERE id = 'cl1'");
+    expect(sqlAll(db, "SELECT * FROM posts").length).toBe(0);
+  });
+
+  it("defaults post topic fields and the generation-run kind", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO posts(id, body) VALUES ('p1','Hello')");
+    const post = sqlAll<{ client_id: string | null; topic: string; pillar: string; content_format: string }>(db, "SELECT client_id, topic, pillar, content_format FROM posts WHERE id = 'p1'");
+    expect(post[0]).toEqual({ client_id: null, topic: "", pillar: "", content_format: "" });
+    db.run("INSERT INTO event_generation_runs(id, calendar_id, request, proposals, rejected) VALUES ('r1','c1','{}','[]','[]')");
+    const run = sqlAll<{ kind: string }>(db, "SELECT kind FROM event_generation_runs WHERE id = 'r1'");
+    expect(run[0]?.kind).toBe("events");
+    db.run("INSERT INTO event_generation_runs(id, calendar_id, kind, request, proposals, rejected) VALUES ('r2','c1','topics','{}','[]','[]')");
+    expect(sqlAll<{ kind: string }>(db, "SELECT kind FROM event_generation_runs WHERE id = 'r2'")[0]?.kind).toBe("topics");
   });
 });

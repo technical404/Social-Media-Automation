@@ -1,6 +1,7 @@
 // Data access for the local SQLite database (same SQL on both engines).
 import { all, run, tx, uid, nowIso, type Stmt } from "./db";
 import type { Proposal, PlanRequest } from "./planner";
+import type { ContentPlanRequest, TopicProposal } from "./content-planner";
 import { builtinEventsFor, eventCode } from "./global-calendar";
 
 export type Calendar = {
@@ -23,6 +24,7 @@ export type Calendar = {
 export type EventRow = {
   id: string;
   calendar_id: string;
+  client_id: string | null;
   name: string;
   short_description: string;
   detailed_description: string;
@@ -84,6 +86,7 @@ export type ActivityRow = { id: string; action: string; entity_type: string; ent
 export type GenerationRun = {
   id: string;
   calendar_id: string;
+  kind: string;
   request: string;
   provider_name: string | null;
   model: string | null;
@@ -257,11 +260,11 @@ const EVENT_SELECT = `SELECT e.*, c.name AS calendar_name, c.default_time AS def
 
 export const listEvents = (calendarId: string | null) =>
   calendarId
-    ? all<EventRow>(`${EVENT_SELECT} WHERE e.calendar_id = ? ORDER BY e.start_date, e.name`, [calendarId])
-    : all<EventRow>(`${EVENT_SELECT} ORDER BY e.start_date, e.name`);
+    ? all<EventRow>(`${EVENT_SELECT} WHERE e.calendar_id = ? AND e.client_id IS NULL ORDER BY e.start_date, e.name`, [calendarId])
+    : all<EventRow>(`${EVENT_SELECT} WHERE e.client_id IS NULL ORDER BY e.start_date, e.name`);
 
 export const searchEvents = (q: string) =>
-  all<EventRow>(`${EVENT_SELECT} WHERE e.name LIKE ? OR e.short_description LIKE ? ORDER BY e.start_date LIMIT 20`, [`%${q}%`, `%${q}%`]);
+  all<EventRow>(`${EVENT_SELECT} WHERE e.client_id IS NULL AND (e.name LIKE ? OR e.short_description LIKE ?) ORDER BY e.start_date LIMIT 20`, [`%${q}%`, `%${q}%`]);
 
 export type EventInput = Pick<
   EventRow,
@@ -388,9 +391,23 @@ export async function unscheduleEvents(ids: string[], calendarId?: string | null
 }
 
 export async function deleteEvents(ids: string[], calendarId?: string | null) {
+  if (!ids.length) return;
   if (await isReferenceCalendar(calendarId)) {
-    for (const id of ids) await upsertState(calendarId!, id, { hidden: 1 });
-    await logActivity("event.removed_from_client", `Removed ${ids.length} event(s) from this client's calendar`, { level: "warning" });
+    // Client-specific events belong to the client, so deleting them removes the
+    // row. Shared Global Calendar events can only be hidden for this client.
+    const owned = await all<{ id: string }>(`SELECT id FROM events WHERE client_id IS NOT NULL AND id IN (${ph(ids.length)})`, ids);
+    const ownedIds = new Set(owned.map((r) => r.id));
+    const hiddenIds = ids.filter((id) => !ownedIds.has(id));
+    const parts: string[] = [];
+    if (ownedIds.size) {
+      await run(`DELETE FROM events WHERE id IN (${ph(ownedIds.size)})`, [...ownedIds]);
+      parts.push(`deleted ${ownedIds.size} client event(s)`);
+    }
+    if (hiddenIds.length) {
+      for (const id of hiddenIds) await upsertState(calendarId!, id, { hidden: 1 });
+      parts.push(`hid ${hiddenIds.length} global event(s)`);
+    }
+    await logActivity("event.removed_from_client", `Removed ${parts.join(" and ")} from this client's calendar`, { level: "warning" });
     return;
   }
   await tx([
@@ -400,22 +417,29 @@ export async function deleteEvents(ids: string[], calendarId?: string | null) {
 }
 
 // ---------- AI generation runs (preview state) ----------
-export async function saveRun(calendarId: string, req: PlanRequest, meta: { provider: string; model: string }, accepted: Proposal[], rejected: unknown[]) {
+export async function saveRun(
+  calendarId: string,
+  req: PlanRequest | ContentPlanRequest,
+  meta: { provider: string; model: string },
+  accepted: unknown[],
+  rejected: unknown[],
+  kind: "events" | "topics" = "events",
+) {
   const id = uid();
   await tx([
-    { sql: "UPDATE event_generation_runs SET status = 'discarded' WHERE calendar_id = ? AND status = 'preview'", params: [calendarId] },
+    { sql: "UPDATE event_generation_runs SET status = 'discarded' WHERE calendar_id = ? AND kind = ? AND status = 'preview'", params: [calendarId, kind] },
     {
-      sql: "INSERT INTO event_generation_runs(id, calendar_id, request, provider_name, model, proposals, rejected) VALUES (?,?,?,?,?,?,?)",
-      params: [id, calendarId, JSON.stringify(req), meta.provider, meta.model, JSON.stringify(accepted), JSON.stringify(rejected)],
+      sql: "INSERT INTO event_generation_runs(id, calendar_id, kind, request, provider_name, model, proposals, rejected) VALUES (?,?,?,?,?,?,?,?)",
+      params: [id, calendarId, kind, JSON.stringify(req), meta.provider, meta.model, JSON.stringify(accepted), JSON.stringify(rejected)],
     },
-    activityStmt("ai.events_proposed", `AI proposed ${accepted.length} event(s) (${rejected.length} rejected by validation) via ${meta.provider}`, { entity_type: "calendar", entity_id: calendarId }),
+    activityStmt("ai.proposed", `AI proposed ${accepted.length} ${kind === "topics" ? "content topic(s)" : "event(s)"} (${rejected.length} rejected by validation) via ${meta.provider}`, { entity_type: "calendar", entity_id: calendarId }),
   ]);
   return id;
 }
-export async function getPreviewRun(calendarId: string): Promise<GenerationRun | null> {
-  return (await all<GenerationRun>("SELECT * FROM event_generation_runs WHERE calendar_id = ? AND status = 'preview' ORDER BY created_at DESC LIMIT 1", [calendarId]))[0] ?? null;
+export async function getPreviewRun(calendarId: string, kind: "events" | "topics" = "events"): Promise<GenerationRun | null> {
+  return (await all<GenerationRun>("SELECT * FROM event_generation_runs WHERE calendar_id = ? AND kind = ? AND status = 'preview' ORDER BY created_at DESC LIMIT 1", [calendarId, kind]))[0] ?? null;
 }
-export async function updateRunProposals(runId: string, proposals: Proposal[]) {
+export async function updateRunProposals(runId: string, proposals: unknown[]) {
   await run("UPDATE event_generation_runs SET proposals = ? WHERE id = ?", [JSON.stringify(proposals), runId]);
 }
 export async function discardRun(runId: string) {
@@ -425,16 +449,52 @@ export async function discardRun(runId: string) {
   ]);
 }
 /** Explicit human approval: only selected proposals become saved, approved events. */
-export async function commitRun(run_: GenerationRun, cal: Calendar, proposals: Proposal[]) {
+export async function commitRun(run_: GenerationRun, cal: Calendar, proposals: Proposal[], clientId?: string | null) {
   const picked = proposals.filter((p) => p.selected);
+  const targetClientId = clientId || null;
+  const client = targetClientId ? await getClient(targetClientId) : null;
+  if (targetClientId && !client) throw new Error("The selected client no longer exists. Ask the AI again.");
+  const request = JSON.parse(run_.request) as PlanRequest;
+  const scope = client ? client.scope || "GLOBAL" : cal.scope ?? "GLOBAL";
+  const industry = client ? client.industry || request.industry : cal.industry;
+  const region = client ? request.region : cal.region;
   const now = nowIso();
   const stmts: Stmt[] = picked.map((p) => ({
-    sql: `INSERT OR IGNORE INTO events(id, calendar_id, name, short_description, detailed_description, category, industry, region, start_date, end_date, importance, event_kind, source_url, verification_status, campaign_topic, content_format, hashtags, image_prompt, video_prompt, scope, event_code, approval_status, approved_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'approved',?)`,
-    params: [uid(), cal.id, p.name, p.short_description, p.detailed_description, p.category, cal.industry, cal.region, p.start_date, p.end_date, p.importance, p.event_kind, p.source_url, p.source_url ? "source_provided" : "unverified", p.campaign_topic, p.content_format, JSON.stringify(p.hashtags), p.image_prompt, p.video_prompt, cal.scope ?? "GLOBAL", eventCode(cal.scope ?? "GLOBAL", p.name, p.start_date), now],
+    sql: `INSERT OR IGNORE INTO events(
+            id, calendar_id, client_id, name, short_description, detailed_description,
+            category, industry, region, start_date, end_date, importance, event_kind,
+            source_url, verification_status, campaign_topic, content_format, hashtags,
+            image_prompt, video_prompt, scope, event_code, approval_status, approved_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    params: [
+      uid(), cal.id, targetClientId, p.name, p.short_description, p.detailed_description,
+      p.category, industry, region, p.start_date, p.end_date, p.importance, p.event_kind,
+      p.source_url, p.source_url ? "source_provided" : "unverified", p.campaign_topic, p.content_format, JSON.stringify(p.hashtags),
+      p.image_prompt, p.video_prompt, scope, client ? null : eventCode(scope, p.name, p.start_date), "approved", now,
+    ],
   }));
   stmts.push({ sql: "UPDATE event_generation_runs SET status = 'committed', committed_at = ?, proposals = ? WHERE id = ?", params: [now, JSON.stringify(proposals), run_.id] });
-  stmts.push(activityStmt("ai.events_committed", `Approved and saved ${picked.length} AI event(s) to "${cal.name}"`, { entity_type: "calendar", entity_id: cal.id, level: "success" }));
+  stmts.push(activityStmt("ai.events_committed", `Approved and saved ${picked.length} AI event(s) to "${cal.name}"${client ? ` for ${client.name}` : ""}`, { entity_type: "calendar", entity_id: cal.id, level: "success" }));
+  await tx(stmts);
+  return picked.length;
+}
+
+/** Explicit human approval of a topic plan: each selected topic becomes a scheduled draft post. */
+export async function commitTopicRun(run_: GenerationRun, cal: Calendar, topics: TopicProposal[], clientId?: string | null) {
+  const picked = topics.filter((t) => t.selected);
+  const targetClientId = clientId || null;
+  if (!targetClientId) throw new Error("Choose a client before saving a content calendar.");
+  const client = await getClient(targetClientId);
+  if (!client) throw new Error("The selected client no longer exists. Ask the AI again.");
+  const time = (client.default_time || cal.default_time || "10:00").slice(0, 5);
+  const now = nowIso();
+  const stmts: Stmt[] = picked.map((t) => ({
+    sql: `INSERT INTO posts(id,campaign_id,client_id,platform,body,hashtags,status,scheduled_at,topic,pillar,content_format)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    params: [uid(), null, targetClientId, t.platform, t.caption || t.brief || t.topic, JSON.stringify(t.hashtags), "draft", `${t.date}T${time}`, t.topic, t.pillar, t.format],
+  }));
+  stmts.push({ sql: "UPDATE event_generation_runs SET status = 'committed', committed_at = ?, proposals = ? WHERE id = ?", params: [now, JSON.stringify(topics), run_.id] });
+  stmts.push(activityStmt("ai.content_committed", `Approved and saved ${picked.length} content topic(s) as draft posts for ${client.name}`, { entity_type: "client", entity_id: client.id, level: "success" }));
   await tx(stmts);
   return picked.length;
 }
@@ -624,13 +684,19 @@ export async function seedGlobalObservances(): Promise<number> {
   return after - before;
 }
 
-export const listGlobalEvents = () => all<EventRow>(`${EVENT_SELECT} WHERE c.is_global = 1 ORDER BY e.start_date, e.name`);
+export const listGlobalEvents = () => all<EventRow>(`${EVENT_SELECT} WHERE c.is_global = 1 AND e.client_id IS NULL ORDER BY e.start_date, e.name`);
 
-/** What a client calendar shows: global events in range, merged with this client's own state. */
+/** What a client calendar shows: global events in scope plus this client's own events. */
 export async function listClientCalendarEvents(calendarId: string): Promise<EventRow[]> {
   const cal = await getCalendar(calendarId);
   if (!cal) return [];
-  const rows = await all<EventRow>(`${EVENT_SELECT} WHERE c.is_global = 1 AND (e.scope = 'GLOBAL' OR e.scope = ?) ORDER BY e.start_date, e.name`, [cal.scope ?? "GLOBAL"]);
+  const rows = await all<EventRow>(
+    `${EVENT_SELECT} WHERE c.is_global = 1 AND (
+       (e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
+       OR e.client_id = ?
+     ) ORDER BY e.start_date, e.name`,
+    [cal.scope ?? "GLOBAL", cal.client_id],
+  );
   const states = await all<StateRow>("SELECT event_id, time_override, approval_status, publish_status, category, hidden FROM client_event_state WHERE calendar_id = ?", [calendarId]);
   const byId = new Map(states.map((s) => [s.event_id, s]));
   const out: EventRow[] = [];
@@ -701,7 +767,7 @@ export async function dashboardStats(): Promise<DashboardStats> {
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)])) as DashboardStats;
 }
 export const upcomingEvents = (limit = 8) =>
-  all<EventRow>(`${EVENT_SELECT} WHERE e.start_date >= date('now') ORDER BY e.start_date, e.name LIMIT ?`, [limit]);
+  all<EventRow>(`${EVENT_SELECT} WHERE e.client_id IS NULL AND e.start_date >= date('now') ORDER BY e.start_date, e.name LIMIT ?`, [limit]);
 
 // ---------- legacy import ----------
 type LegacyExport = {
@@ -735,7 +801,20 @@ export async function importLegacy(data: LegacyExport): Promise<{ calendars: num
 }
 
 export type Campaign = { id: string; name: string; objective: string; audience: string; start_date: string | null; end_date: string | null; status: string; notes: string; platforms: string };
-export type PostRow = { id: string; body: string; platform: string; status: string; scheduled_at: string | null; fail_reason: string | null; campaign_id: string | null };
+export type PostRow = {
+  id: string;
+  body: string;
+  platform: string;
+  status: string;
+  scheduled_at: string | null;
+  fail_reason: string | null;
+  campaign_id: string | null;
+  client_id: string | null;
+  topic: string;
+  pillar: string;
+  content_format: string;
+  hashtags: string;
+};
 export type SocialAccount = { id: string; platform: string; display_name: string; handle: string; status: string; note: string };
 export type MediaAsset = { id: string; filename: string; mime: string; bytes: number; tags: string; folder: string };
 export type BrandVoice = { id: string; name: string; industry: string; audience: string; tone: string; language: string; guidelines: string };
@@ -756,12 +835,15 @@ export async function saveCampaign(c: Partial<Campaign> & { name: string }) {
 export const listPosts = (status?: string) =>
   status ? all<PostRow>("SELECT * FROM posts WHERE status = ? ORDER BY updated_at DESC", [status]) : all<PostRow>("SELECT * FROM posts ORDER BY updated_at DESC");
 
+export const listClientPosts = (clientId: string) =>
+  all<PostRow>("SELECT * FROM posts WHERE client_id = ? ORDER BY scheduled_at, created_at", [clientId]);
+
 export async function savePost(p: Partial<PostRow> & { body: string }) {
   const id = p.id ?? uid();
   await run(
-    `INSERT INTO posts(id,campaign_id,platform,body,status,scheduled_at,fail_reason) VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(id) DO UPDATE SET body=excluded.body, platform=excluded.platform, status=excluded.status, scheduled_at=excluded.scheduled_at, campaign_id=excluded.campaign_id, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
-    [id, p.campaign_id ?? null, p.platform ?? "", p.body, p.status ?? "draft", p.scheduled_at ?? null, p.fail_reason ?? null],
+    `INSERT INTO posts(id,campaign_id,client_id,platform,body,hashtags,status,scheduled_at,topic,pillar,content_format,fail_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET body=excluded.body, platform=excluded.platform, hashtags=excluded.hashtags, status=excluded.status, scheduled_at=excluded.scheduled_at, campaign_id=excluded.campaign_id, client_id=excluded.client_id, topic=excluded.topic, pillar=excluded.pillar, content_format=excluded.content_format, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+    [id, p.campaign_id ?? null, p.client_id ?? null, p.platform ?? "", p.body, p.hashtags ?? "", p.status ?? "draft", p.scheduled_at ?? null, p.topic ?? "", p.pillar ?? "", p.content_format ?? "", p.fail_reason ?? null],
   );
   await logActivity("post.save", `Post ${id.slice(0, 8)} saved as ${p.status ?? "draft"}`);
   return id;

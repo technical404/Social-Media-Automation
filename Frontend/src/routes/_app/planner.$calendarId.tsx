@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { EventWorkspace } from "@/components/event-workspace";
 import { GenerateDialog } from "@/components/generate-dialog";
 import { ProposalReview } from "@/components/proposal-review";
+import { TopicReview } from "@/components/topic-review";
 import { EventFormDialog } from "@/components/event-form-dialog";
 import { todayIn, useRefresh } from "@/lib/hooks";
 import * as repo from "@/lib/repo";
@@ -31,6 +32,7 @@ function CalendarPage() {
   const { data: cal, isLoading } = useQuery({ queryKey: ["calendar", calendarId], queryFn: () => repo.getCalendar(calendarId) });
   const { data: events } = useQuery({ queryKey: ["events", calendarId], queryFn: () => repo.listEvents(calendarId) });
   const { data: run } = useQuery({ queryKey: ["run", calendarId], queryFn: () => repo.getPreviewRun(calendarId) });
+  const { data: topicRun } = useQuery({ queryKey: ["run-topics", calendarId], queryFn: () => repo.getPreviewRun(calendarId, "topics") });
   const [genOpen, setGenOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [wsKey, setWsKey] = useState(0);
@@ -47,6 +49,10 @@ function CalendarPage() {
   if (isLoading || !events) return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>;
   if (!cal) return <p>Calendar not found. <Link to="/planner" className="text-primary underline">Back to Event Planner</Link></p>;
 
+  const topicFirst = Boolean(topicRun && (!run || topicRun.created_at > run.created_at));
+  const eventReview = run && <ProposalReview key={run.id} run={run} calendar={cal} onDone={async () => { await refresh(); setWsKey((k) => k + 1); }} />;
+  const topicReview = topicRun && <TopicReview key={topicRun.id} run={topicRun} calendar={cal} onDone={async () => { await refresh(); }} />;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -57,11 +63,11 @@ function CalendarPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setAdding(true)}><Plus /> Add event</Button>
-          <Button variant="highlight" onClick={() => setGenOpen(true)}><Wand2 /> Ask AI for events</Button>
+          <Button variant="highlight" onClick={() => setGenOpen(true)}><Wand2 /> Ask AI</Button>
         </div>
       </div>
 
-      {run && <ProposalReview key={run.id} run={run} calendar={cal} onDone={async () => { await refresh(); setWsKey((k) => k + 1); }} />}
+      {topicFirst ? <>{topicReview}{eventReview}</> : <>{eventReview}{topicReview}</>}
 
       <EventWorkspace key={`${cal.id}-${wsKey}-${focus ?? ""}`} calendar={cal} events={events} focusDate={focus} />
 

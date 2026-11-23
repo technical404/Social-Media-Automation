@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ArrowLeft, CalendarDays, Loader2, Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app-shell";
 import { EventWorkspace } from "@/components/event-workspace";
+import { IndustrySelect } from "@/components/industry-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,7 +94,7 @@ function ClientSchedulerPage() {
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cc-name">Name</Label><Input id="cc-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Q1 awareness calendar" /></div>
-            <div className="space-y-1.5"><Label htmlFor="cc-ind">Industry</Label><Input id="cc-ind" value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })} placeholder="Healthcare" /></div>
+            <div className="space-y-1.5"><Label htmlFor="cc-ind">Industry</Label><IndustrySelect id="cc-ind" value={f.industry} onChange={(v) => setF({ ...f, industry: v })} /></div>
             <div className="space-y-1.5"><Label htmlFor="cc-reg">Country / region</Label><Input id="cc-reg" value={f.region} onChange={(e) => setF({ ...f, region: e.target.value })} placeholder="India" /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cc-theme">Theme (optional)</Label><Input id="cc-theme" value={f.theme} onChange={(e) => setF({ ...f, theme: e.target.value })} placeholder="Preventive health" /></div>
             <div className="space-y-1.5">

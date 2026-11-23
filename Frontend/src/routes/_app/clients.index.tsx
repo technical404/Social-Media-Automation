@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { CalendarRange, MoreHorizontal, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { IndustrySelect } from "@/components/industry-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -116,7 +117,7 @@ function ClientsPage() {
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-name">Name</Label><Input id="cl-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Acme Hospital" /></div>
-            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-ind">Industry</Label><Input id="cl-ind" value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })} placeholder="Healthcare, retail, finance…" /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-ind">Industry</Label><IndustrySelect id="cl-ind" value={f.industry} onChange={(v) => setF({ ...f, industry: v })} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-desc">Description (optional)</Label><Textarea id="cl-desc" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Context, contacts, goals…" /></div>
             <div className="space-y-1.5"><Label htmlFor="cl-time">Default posting time</Label><Input id="cl-time" type="time" value={f.default_time} onChange={(e) => setF({ ...f, default_time: e.target.value })} /></div>
             <div className="space-y-1.5">

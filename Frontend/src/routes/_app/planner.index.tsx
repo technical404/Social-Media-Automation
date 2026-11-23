@@ -6,6 +6,7 @@ import { CalendarDays, Loader2, Pencil, Plus, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { EventFormDialog } from "@/components/event-form-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CategoryChip, StatusBadge } from "@/components/status-badge";
 import { formatMDY, formatTime12 } from "@/lib/dates";
 import { SCOPES, SCOPE_LABEL } from "@/lib/global-calendar";
@@ -34,6 +35,7 @@ function PlannerIndex() {
   const [editing, setEditing] = useState<repo.EventRow | null>(null);
   const { data: gcal, isLoading } = useQuery({ queryKey: ["global-calendar"], queryFn: repo.ensureGlobalCalendar });
   const { data: events = [] } = useQuery({ queryKey: ["global-events"], queryFn: repo.listGlobalEvents, enabled: !!gcal });
+  const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: repo.listClients });
 
   const upcoming = events.filter((e) => e.start_date >= today).slice(0, 8);
   const byScope = SCOPES.map((s) => ({ s, n: events.filter((e) => e.scope === s).length })).filter((x) => x.n > 0);
@@ -58,7 +60,20 @@ function PlannerIndex() {
         title="Global Calendar"
         subtitle="The one master calendar. Every client calendar follows it — names and dates live here once, clients only choose their own times and schedule."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              disabled={!clients.length}
+              onValueChange={(clientId) => navigate({ to: "/clients/$clientId", params: { clientId } })}
+            >
+              <SelectTrigger className="w-52" aria-label="Open a client calendar">
+                <SelectValue placeholder={clients.length ? "Open client calendar" : "No clients yet"} />
+              </SelectTrigger>
+              <SelectContent>
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" onClick={loadBuiltins} disabled={busy}>
               {busy ? <Loader2 className="animate-spin" /> : <Sparkles />} Add built-in observances
             </Button>

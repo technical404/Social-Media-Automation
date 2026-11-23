@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEventPrompt, effectiveTime, filterAndSort, isLeapYear, mockEventResponse, parseModelJson, scopeWindow, toCSV, validateProposals, type PlanRequest } from "@/lib/planner";
+import { buildEventPrompt, effectiveTime, filterAndSort, isLeapYear, mockEventResponse, parseModelJson, scopeWindow, toCSV, validateProposals, withCurrent, CONTENT_TYPES, INDUSTRIES, type PlanRequest } from "@/lib/planner";
 import { assertPublicHttps } from "@/lib/ai.server";
 
 const req = (scope: PlanRequest["scope"]): PlanRequest => ({ prompt: "", scope, industry: "Medical", region: "India", theme: "", maxEvents: 100 });
@@ -119,5 +119,14 @@ describe("strict JSON from the AI", () => {
     const { system } = buildEventPrompt(req({ scope: "year", year: 2027 }));
     expect(system).toMatch(/single JSON object/i);
     expect(system).toMatch(/do not wrap it in markdown/i);
+  });
+});
+
+describe("dropdown option lists", () => {
+  it("keeps a stored custom value selectable without duplicating presets", () => {
+    const custom = withCurrent(INDUSTRIES, "Aerospace");
+    expect(custom[0]).toBe("Aerospace");
+    expect(custom).toHaveLength(INDUSTRIES.length + 1);
+    expect(withCurrent(CONTENT_TYPES, "Reel")).toEqual([...CONTENT_TYPES]);
   });
 });

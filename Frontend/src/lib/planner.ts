@@ -15,6 +15,64 @@ export type Category = (typeof CATEGORIES)[number];
 export const EVENT_KINDS = ["official_observance", "ai_suggestion", "custom"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
+/** Preset industries for client, calendar and AI-planning forms. */
+export const INDUSTRIES = [
+  "Healthcare",
+  "Hospital",
+  "Clinic",
+  "Dental",
+  "Pharmaceutical",
+  "Medical education",
+  "Fitness & wellness",
+  "Beauty & personal care",
+  "Education",
+  "Retail",
+  "E-commerce",
+  "Food & beverage",
+  "Hospitality & travel",
+  "Finance & banking",
+  "Insurance",
+  "Real estate",
+  "Technology",
+  "Software & SaaS",
+  "Telecommunications",
+  "Manufacturing",
+  "Automotive",
+  "Construction",
+  "Energy & utilities",
+  "Logistics & transport",
+  "Nonprofit",
+  "Government",
+  "Media & entertainment",
+  "Legal",
+  "Consulting",
+  "Other",
+] as const;
+
+/** Canonical content formats, shared with the spreadsheet importer. */
+export const CONTENT_TYPES = [
+  "Reel",
+  "Static post",
+  "Carousel",
+  "Story",
+  "Video",
+  "Short video",
+  "Image",
+  "Post",
+  "Caption",
+  "Blog",
+  "Email",
+  "Poll",
+  "Live",
+  "GIF",
+] as const;
+
+/** Keep a stored custom value selectable even when it is not one of the presets. */
+export function withCurrent(options: readonly string[], current: string): string[] {
+  const list = [...options];
+  return current && !list.includes(current) ? [current, ...list] : list;
+}
+
 export type Scope =
   | { scope: "date"; date: string }
   | { scope: "week"; start: string }

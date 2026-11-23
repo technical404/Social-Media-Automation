@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { IndustrySelect } from "@/components/industry-select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -166,7 +167,7 @@ export function GenerateDialog({
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label htmlFor="g-ind">Industry</Label>
-              <Input id="g-ind" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="Hospital" />
+              <IndustrySelect id="g-ind" value={industry} onChange={setIndustry} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="g-reg">Country / region</Label>

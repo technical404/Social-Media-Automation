@@ -447,13 +447,13 @@ export function ImportSheetDialog({
                 <p className="text-[11px] text-muted-foreground">Expand a row to edit description, end date, hashtags, source and importance.</p>
 
                 <div className="hidden gap-2 px-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground lg:grid lg:grid-cols-[auto_8.5rem_5.5rem_minmax(9rem,1fr)_8.5rem_7.5rem_10rem_auto]">
-                  <span>Use</span>
-                  <span>Date</span>
-                  <span>Time</span>
-                  <span>Topic</span>
-                  <span>Category</span>
-                  <span>Type</span>
-                  <span>Platforms</span>
+                  <span title="Tick to include this row in the import">Use</span>
+                  <span title="Event start date; the end date can be edited in the row details">Date</span>
+                  <span title="Posting time; leave blank to use the calendar default">Time</span>
+                  <span title="Event or observance name">Topic</span>
+                  <span title="Calendar category used for filters and colour coding">Category</span>
+                  <span title="Content format, such as Reel, Carousel or Static post">Type</span>
+                  <span title="Comma-separated social platforms">Platforms</span>
                   <span />
                 </div>
 

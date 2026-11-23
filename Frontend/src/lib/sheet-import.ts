@@ -2,7 +2,7 @@
 // Pure functions only — the file reading (xlsx) happens in the dialog so this stays testable.
 
 import { isValidISODate, pad } from "./dates";
-import { CATEGORIES } from "./planner";
+import { CATEGORIES, CONTENT_TYPES } from "./planner";
 
 export const MAX_IMPORT_ROWS = 2000;
 
@@ -325,7 +325,7 @@ export function normalizeImportance(value: unknown): "low" | "medium" | "high" {
   return "medium";
 }
 
-const CONTENT_TYPE_ALIAS: Record<string, string> = {
+const CONTENT_TYPE_ALIAS: Record<string, (typeof CONTENT_TYPES)[number]> = {
   reel: "Reel", reels: "Reel", reelvideo: "Reel", video: "Video", shortvideo: "Short video", shorts: "Short video",
   story: "Story", stories: "Story", post: "Post", static: "Static post", staticpost: "Static post",
   carousel: "Carousel", image: "Image", photo: "Image", caption: "Caption", blog: "Blog",

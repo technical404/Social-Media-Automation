@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatMDY, isValidISODate } from "@/lib/dates";
-import { buildEventPrompt, mockEventResponse, parseModelJson, validateProposals, type PlanRequest, type Scope } from "@/lib/planner";
+import { buildEventPrompt, mockEventResponse, parseModelJson, salvageTruncatedEvents, validateProposals, type PlanRequest, type Scope } from "@/lib/planner";
 import { runAi } from "@/lib/ai/client";
 import * as repo from "@/lib/repo";
 
@@ -83,13 +83,40 @@ export function GenerateDialog({
         res = await call(`${user}\n\nYour previous answer was not valid JSON. Reply with ONLY the JSON object — no markdown, no explanation.`);
         parsed = parseModelJson(res.text, res.finishReason);
       }
-      if (!parsed.ok) throw new Error(`The AI did not return strict JSON (${parsed.reason}): ${parsed.detail}`);
+      // Large lists can hit the provider's output limit. Keep the events that were
+      // completed before the cut instead of losing the whole answer.
+      let truncated = false;
+      if (!parsed.ok && parsed.reason === "truncated") {
+        const salvaged = salvageTruncatedEvents(res.text);
+        if (salvaged.length) {
+          parsed = { ok: true, value: { events: salvaged } };
+          truncated = true;
+        }
+      }
+      if (!parsed.ok) {
+        const hint = parsed.reason === "truncated"
+          ? " Lower “Max events”, or raise this provider's “Max output” in AI Providers and try again."
+          : "";
+        throw new Error(`The AI did not return strict JSON (${parsed.reason}): ${parsed.detail}${hint}`);
+      }
       const existing = (await repo.listEvents(calendar.id)).map((e) => ({ start_date: e.start_date, name: e.name }));
       const { accepted, rejected } = validateProposals(parsed.value, { scope, existing, maxEvents });
+      if (truncated) {
+        if (!accepted.length) {
+          throw new Error("The AI answer was cut off before any complete event could be recovered. Lower “Max events”, or raise this provider's “Max output” in AI Providers and try again.");
+        }
+        rejected.push({ item: "AI answer", reason: `The provider cut the answer off; only the ${accepted.length} complete event(s) were kept. Lower “Max events” for a complete list.` });
+      }
       await repo.saveRun(calendar.id, req, { provider: res.providerName, model: res.model }, accepted, rejected);
-      toast.success(`${accepted.length} events proposed — review them before saving`, {
-        description: `${res.providerName} · ${(res.ms / 1000).toFixed(1)}s${rejected.length ? ` · ${rejected.length} rejected by checks` : ""}`,
-      });
+      if (truncated) {
+        toast.warning(`${accepted.length} complete events recovered from a cut-off answer`, {
+          description: `${res.providerName} · ${(res.ms / 1000).toFixed(1)}s · output limit reached. Review them, or lower “Max events” and ask again for the full list.`,
+        });
+      } else {
+        toast.success(`${accepted.length} events proposed — review them before saving`, {
+          description: `${res.providerName} · ${(res.ms / 1000).toFixed(1)}s${rejected.length ? ` · ${rejected.length} rejected by checks` : ""}`,
+        });
+      }
       onOpenChange(false);
       onProposed(accepted[0]?.start_date ?? "");
     } catch (e) {

@@ -141,9 +141,11 @@ export function buildEventPrompt(req: PlanRequest): { system: string; user: stri
     "NEVER invent an official observance. If you are not sure an observance is official, set event_kind to \"ai_suggestion\".",
     "Only give a source_url you are confident is the official page; otherwise leave it empty.",
     `category must be one of: ${CATEGORIES.join(" | ")}.`,
+    "Every start_date must fall inside the requested period; omit events outside it.",
     "Reply with a single JSON object and nothing else. Do NOT wrap it in markdown code fences, and do NOT add any word before or after it.",
     "Your answer must start with { and end with }. Keep every string short so the JSON is always closed properly.",
-    'Exact shape: {"events":[{"name":"","start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","short_description":"","detailed_description":"","category":"","event_kind":"official_observance|ai_suggestion","importance":"low|medium|high","source_url":"","campaign_topic":"","content_format":"","hashtags":["#tag"],"image_prompt":"","video_prompt":""}]}',
+    "Keep short_description under 90 characters and detailed_description under 160 characters. Use at most 5 hashtags. Do not include image_prompt or video_prompt.",
+    'Exact shape: {"events":[{"name":"","start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","short_description":"","detailed_description":"","category":"","event_kind":"official_observance|ai_suggestion","importance":"low|medium|high","source_url":"","campaign_topic":"","content_format":"","hashtags":["#tag"]}]}',
   ].join(" ");
   const user = [
     `Request: ${req.prompt || "Build an event calendar."}`,
@@ -222,6 +224,51 @@ export function parseModelJson(text: string, finishReason?: string | null): Stri
     }
     return { ok: false, reason: "malformed", detail: (e as Error).message };
   }
+}
+
+/**
+ * Recover complete event objects from an answer that the provider cut off.
+ * Only whole objects are returned; an incomplete trailing event is dropped.
+ * Callers must still run validateProposals() on the result.
+ */
+export function salvageTruncatedEvents(text: string): unknown[] {
+  const trimmed = (text ?? "").trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*)$/);
+  const body = (fenced ? fenced[1] : trimmed) ?? "";
+  const key = body.search(/"events"\s*:\s*\[/);
+  if (key < 0) return [];
+  const start = body.indexOf("[", key);
+  if (start < 0) return [];
+  const out: unknown[] = [];
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  let objStart = -1;
+  for (let i = start + 1; i < body.length; i++) {
+    const ch = body[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { if (inStr) esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === "{") {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === "}") {
+      if (depth === 0) continue;
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        try {
+          out.push(JSON.parse(body.slice(objStart, i + 1)));
+        } catch {
+          // Drop a broken item instead of failing the whole answer.
+        }
+        objStart = -1;
+      }
+    } else if (ch === "]" && depth === 0) {
+      break;
+    }
+  }
+  return out;
 }
 
 type RawItem = Partial<Record<"name" | "title" | "start_date" | "date" | "end_date" | "event_kind" | "importance" | "hashtags" | "short_description" | "description" | "detailed_description" | "category" | "source_url" | "campaign_topic" | "content_format" | "image_prompt" | "video_prompt", unknown>> | null;

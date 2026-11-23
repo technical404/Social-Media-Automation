@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEventPrompt, effectiveTime, filterAndSort, isLeapYear, mockEventResponse, parseModelJson, scopeWindow, toCSV, validateProposals, withCurrent, CONTENT_TYPES, INDUSTRIES, type PlanRequest } from "@/lib/planner";
+import { buildEventPrompt, effectiveTime, filterAndSort, isLeapYear, mockEventResponse, parseModelJson, salvageTruncatedEvents, scopeWindow, toCSV, validateProposals, withCurrent, CONTENT_TYPES, INDUSTRIES, type PlanRequest } from "@/lib/planner";
 import { assertPublicHttps } from "@/lib/ai.server";
 
 const req = (scope: PlanRequest["scope"]): PlanRequest => ({ prompt: "", scope, industry: "Medical", region: "India", theme: "", maxEvents: 100 });
@@ -119,6 +119,31 @@ describe("strict JSON from the AI", () => {
     const { system } = buildEventPrompt(req({ scope: "year", year: 2027 }));
     expect(system).toMatch(/single JSON object/i);
     expect(system).toMatch(/do not wrap it in markdown/i);
+  });
+
+  it("keeps the prompt compact enough for a small output limit", () => {
+    const { system } = buildEventPrompt(req({ scope: "month", year: 2026, month: 11 }));
+    const shape = system.slice(system.indexOf("Exact shape:"));
+    expect(system).toMatch(/start_date must fall inside the requested period/i);
+    expect(system).toMatch(/short_description under 90 characters/i);
+    expect(shape).not.toMatch(/image_prompt|video_prompt/);
+  });
+
+  it("recovers complete events from a cut-off answer", () => {
+    const first = '{"name":"World Stroke Day","start_date":"2026-10-29","hashtags":["#stroke"]}';
+    const second = '{"name":"National Patient Transport Week","start_date":"2026-11-08"}';
+    const text = `{"events":[${first},${second},{"name":"Incomplete","start_date":"2026-11-09`;
+    expect(salvageTruncatedEvents(text)).toEqual([JSON.parse(first), JSON.parse(second)]);
+  });
+
+  it("drops an event cut off inside a string", () => {
+    const first = '{"name":"World Stroke Day","start_date":"2026-10-29"}';
+    const text = `{"events":[${first},{"name":"Broken","hashtags":["#a","#b`;
+    expect(salvageTruncatedEvents(text)).toEqual([JSON.parse(first)]);
+  });
+
+  it("returns no events when there is no events array", () => {
+    expect(salvageTruncatedEvents('{"error":"not an events answer"')).toEqual([]);
   });
 });
 

@@ -32,7 +32,7 @@ export function ClientPosts({ clientId }: { clientId: string }) {
             <FileText className="h-4 w-4" /> Content posts
             <span className="text-sm font-normal text-muted-foreground">{count} post{count === 1 ? "" : "s"}</span>
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">Draft and scheduled posts for this client, separate from the event calendar. AI topic plans appear here.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Draft and scheduled posts for this client. AI topic plans also appear in the calendar and list below.</p>
         </div>
         <Button asChild variant="outline" size="sm"><Link to="/posts">Open Posts &amp; Approvals <ArrowRight /></Link></Button>
       </div>

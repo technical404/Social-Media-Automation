@@ -5,6 +5,8 @@ const STYLE: Record<string, string> = {
   pending_review: "bg-warning text-warning-foreground",
   approved: "bg-success/15 text-success",
   rejected: "bg-destructive/15 text-destructive",
+  draft: "bg-muted text-muted-foreground",
+  pending_approval: "bg-warning text-warning-foreground",
   not_scheduled: "bg-muted text-muted-foreground",
   scheduled: "bg-primary text-primary-foreground",
   published: "bg-success text-success-foreground",

@@ -33,6 +33,13 @@ const parseList = (s: string): string[] => {
   }
 };
 
+const postTopic = (p: repo.PostRow) => p.topic.trim() || "Content post";
+const postDate = (p: repo.PostRow) => p.scheduled_at?.slice(0, 10) ?? "";
+const postApprovalStatus = (status: string) =>
+  status === "pending_approval" ? "pending_review" : status === "approved" || status === "scheduled" || status === "published" ? "approved" : status === "rejected" || status === "failed" ? "rejected" : "not_scheduled";
+const postPublishStatus = (status: string) =>
+  status === "scheduled" || status === "published" ? status : status === "failed" || status === "rejected" ? "failed" : "not_scheduled";
+
 function exportRows(events: repo.EventRow[]) {
   return events.map((e) => ({
     date: formatMDY(e.start_date),
@@ -55,11 +62,14 @@ function exportRows(events: repo.EventRow[]) {
 export function EventWorkspace({
   calendar,
   events,
+  posts = [],
   focusDate,
   globalCalendarId,
 }: {
   calendar: repo.Calendar | null;
   events: repo.EventRow[];
+  /** Client content posts shown alongside events in the calendar and list. */
+  posts?: repo.PostRow[];
   focusDate?: string | undefined;
   /** For a client calendar: where custom events are stored (the single Global Calendar). */
   globalCalendarId?: string | undefined;
@@ -76,17 +86,19 @@ export function EventWorkspace({
 
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [start, setStart] = useState<Date>(() => {
-    const iso = initialScheduleDate(today, events.map((e) => e.start_date), focusDate);
+    const dates = [...events.map((e) => e.start_date), ...posts.map(postDate).filter(Boolean)];
+    const iso = initialScheduleDate(today, dates, focusDate);
     return new Date(`${iso}T00:00:00`);
   });
-  // When the first events arrive (e.g. right after approving an AI proposal), jump to them.
-  const hadEvents = useRef(events.length > 0);
+  // When the first events or posts arrive (e.g. right after approving an AI proposal), jump to them.
+  const hadItems = useRef(events.length > 0 || posts.length > 0);
   useEffect(() => {
-    if (hadEvents.current || !events.length) return;
-    hadEvents.current = true;
-    const iso = initialScheduleDate(today, events.map((e) => e.start_date));
+    if (hadItems.current || (!events.length && !posts.length)) return;
+    hadItems.current = true;
+    const dates = [...events.map((e) => e.start_date), ...posts.map(postDate).filter(Boolean)];
+    const iso = initialScheduleDate(today, dates);
     setStart(new Date(`${iso}T00:00:00`));
-  }, [events, today]);
+  }, [events, posts, today]);
   const [selectMode, setSelectMode] = useState(false);
   const [dates, setDates] = useState<Set<string>>(new Set());
   const [ids, setIds] = useState<Set<string>>(new Set());
@@ -105,16 +117,75 @@ export function EventWorkspace({
     for (const e of events) m.set(e.start_date, [...(m.get(e.start_date) ?? []), e]);
     return m;
   }, [events]);
+  const postsByDate = useMemo(() => {
+    const m = new Map<string, repo.PostRow[]>();
+    for (const p of posts) {
+      const d = postDate(p);
+      if (d) m.set(d, [...(m.get(d) ?? []), p]);
+    }
+    return m;
+  }, [posts]);
+  const postDayItems = useMemo(() => {
+    const m = new Map<string, DayItem[]>();
+    for (const [d, list] of postsByDate) {
+      m.set(d, list.map((p) => {
+        const item: DayItem = {
+          name: postTopic(p),
+          category: "Content post",
+          approval_status: postApprovalStatus(p.status),
+          publish_status: postPublishStatus(p.status),
+          kind: "post",
+        };
+        if (p.scheduled_at) item.time = formatTime12(p.scheduled_at.slice(11, 16));
+        return item;
+      }));
+    }
+    return m;
+  }, [postsByDate]);
   const dayItems = useMemo(() => {
     const m = new Map<string, DayItem[]>();
-    for (const [d, l] of byDate) m.set(d, l.map((e) => ({ name: e.name, category: e.category, approval_status: e.approval_status, publish_status: e.publish_status, time: formatTime12(effectiveTime(e, { default_time: e.default_time ?? "10:00" })) })));
+    for (const [d, l] of byDate) m.set(d, l.map((e) => ({ name: e.name, category: e.category, approval_status: e.approval_status, publish_status: e.publish_status, time: formatTime12(effectiveTime(e, { default_time: e.default_time ?? "10:00" })), kind: "event" as const })));
+    for (const [d, l] of postDayItems) m.set(d, [...(m.get(d) ?? []), ...l]);
     return m;
-  }, [byDate]);
+  }, [byDate, postDayItems]);
 
   const overrides = events.filter((e) => e.time_override).length;
   const selectedDateEvents = events.filter((e) => dates.has(e.start_date));
   const listed = filterAndSort(events, filters);
+  const listedPosts = useMemo(() => {
+    const q = filters.q.trim().toLowerCase();
+    const rows = posts.filter((p) => {
+      if (q && ![p.topic, p.body, p.pillar, p.content_format, p.platform, p.status].join(" ").toLowerCase().includes(q)) return false;
+      const d = postDate(p);
+      if (filters.from && (!d || d < filters.from)) return false;
+      if (filters.to && (!d || d > filters.to)) return false;
+      if (filters.category !== "all" && filters.category !== "Content post") return false;
+      if (filters.status !== "all" && postApprovalStatus(p.status) !== filters.status && postPublishStatus(p.status) !== filters.status) return false;
+      return true;
+    });
+    const name = (p: repo.PostRow) => postTopic(p).toLowerCase();
+    const date = (p: repo.PostRow) => p.scheduled_at ?? "";
+    return rows.sort((a, b) => {
+      if (filters.sort === "date_desc") return (date(b) || "0000").localeCompare(date(a) || "0000");
+      if (filters.sort === "name_asc") return name(a).localeCompare(name(b));
+      if (filters.sort === "name_desc") return name(b).localeCompare(name(a));
+      return (date(a) || "9999").localeCompare(date(b) || "9999");
+    });
+  }, [posts, filters]);
   const selectedEvents = events.filter((e) => ids.has(e.id));
+  const gridEntries = [
+    ...listed.map((e) => ({ kind: "event" as const, event: e, date: e.start_date, name: e.name })),
+    ...listedPosts.map((p) => ({ kind: "post" as const, post: p, date: postDate(p), name: postTopic(p) })),
+  ].sort((a, b) => {
+    const dir = filters.sort.endsWith("desc") ? -1 : 1;
+    if (filters.sort.startsWith("name")) return dir * a.name.localeCompare(b.name);
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return dir * (a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  });
+  const itemCount = events.length + posts.length;
+  const openDayEvents = dayOpen ? byDate.get(dayOpen) ?? [] : [];
+  const openDayPosts = dayOpen ? postsByDate.get(dayOpen) ?? [] : [];
 
   const toggleDate = (iso: string) => {
     if (!selectMode) return setDayOpen(iso);
@@ -209,6 +280,30 @@ export function EventWorkspace({
               <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`Delete ${e.name}`} onClick={() => ask({ title: "Delete this event?", body: `“${e.name}” on ${formatMDY(e.start_date)} will be removed.`, label: "Delete", action: async () => { await repo.deleteEvents([e.id], writeCal); refresh(); } })}><Trash2 /></Button>
             </>
           )}
+        </div>
+      </article>
+    );
+  };
+
+  const postTile = (p: repo.PostRow) => {
+    const tags = parseList(p.hashtags);
+    return (
+      <article key={`post-${p.id}`} data-testid="post-tile" className="flex flex-col rounded-2xl border border-dashed bg-secondary/20 p-4 shadow-soft">
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xl font-extrabold tabular-nums tracking-tight">{p.scheduled_at ? formatMDY(postDate(p)) : "No date"}</span>
+          <span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">Content post</span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {p.scheduled_at ? `${formatTime12(p.scheduled_at.slice(11, 16))} · ` : ""}
+          {(PLATFORM_LABEL[p.platform] ?? p.platform) || "no platform"}
+        </p>
+        <h3 className="mt-2 font-sans text-base font-semibold leading-snug">{postTopic(p)}</h3>
+        <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">{p.body}</p>
+        {p.pillar && <p className="mt-1 text-xs text-muted-foreground">{p.pillar}{p.content_format ? ` · ${p.content_format}` : ""}</p>}
+        {tags.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{tags.join(" ")}</p>}
+        <div className="mt-auto flex items-center gap-2 pt-3">
+          <StatusBadge status={p.status} />
+          <span className="ml-auto text-[11px] text-muted-foreground">Manage in Posts &amp; Approvals</span>
         </div>
       </article>
     );
@@ -359,14 +454,14 @@ export function EventWorkspace({
             <Button size="sm" variant="ghost" onClick={() => setDates(new Set())}><X /> Clear selected dates</Button>
           </div>
         )}
-        {view === "calendar" && dates.size === 0 && events.length > 0 && (
+        {view === "calendar" && dates.size === 0 && itemCount > 0 && (
           <p className="mt-3 text-xs text-muted-foreground">
-            {selectMode ? "Click dates to select them, then give them their own time." : "Click a date to see its events. Turn on “Select dates” to pick several dates and change their time together."}
+            {selectMode ? "Click dates to select them, then give them their own time." : "Click a date to see its events and posts. Turn on “Select dates” to pick several dates and change their time together."}
           </p>
         )}
       </section>
 
-      {events.length === 0 ? (
+      {itemCount === 0 ? (
         <EmptyState icon={CalendarDays} title="No events yet" body={calendar ? "Ask the AI for suggestions, add your own event, or import a sheet." : "Create a calendar in Event Planner first."} action={calendar ? <div className="flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={() => setEditing("new")}><Plus /> Add event</Button><Button variant="outline" onClick={() => setImportOpen(true)} disabled={!createTarget}><FileSpreadsheet /> Import from sheet</Button></div> : undefined} />
       ) : view === "calendar" ? (
         <>
@@ -395,6 +490,7 @@ export function EventWorkspace({
                 <SelectTrigger className="w-40" aria-label="Category filter"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All categories</SelectItem>
+                  <SelectItem value="Content post">Content posts</SelectItem>
                   {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -467,7 +563,13 @@ export function EventWorkspace({
               </div>
             )}
           </div>
-          {listed.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{listed.map(tile)}</div> : <p className="text-sm text-muted-foreground">No events match these filters.</p>}
+          {gridEntries.length ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {gridEntries.map((entry) => (entry.kind === "event" ? tile(entry.event) : postTile(entry.post)))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No events or posts match these filters.</p>
+          )}
         </section>
       )}
 
@@ -475,10 +577,10 @@ export function EventWorkspace({
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">
           <SheetHeader>
             <SheetTitle className="text-2xl font-extrabold tabular-nums">{dayOpen && formatMDY(dayOpen)}</SheetTitle>
-            <SheetDescription>{(dayOpen && byDate.get(dayOpen)?.length) || 0} event(s) · times in {tz}</SheetDescription>
+            <SheetDescription>{openDayEvents.length} event(s) · {openDayPosts.length} post(s) · times in {tz}</SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-3">
-            {(dayOpen ? byDate.get(dayOpen) ?? [] : []).map((e) => (
+            {openDayEvents.map((e) => (
               <div key={e.id} className="rounded-xl border p-3">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-sans font-semibold">{e.name}</h3>
@@ -490,6 +592,23 @@ export function EventWorkspace({
                   {timeCell(e)}
                   {e.approval_status !== "approved" && <Button size="sm" variant="success" onClick={async () => { await repo.approveEvents([e.id], writeCal); refresh(); }}>Approve</Button>}
                   {!reference && <Button size="sm" variant="outline" onClick={() => setEditing(e)}><Pencil /> Edit</Button>}
+                </div>
+              </div>
+            ))}
+            {openDayPosts.map((p) => (
+              <div key={p.id} className="rounded-xl border border-dashed p-3" data-testid="calendar-post">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-sans font-semibold">{postTopic(p)}</h3>
+                  <span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">Content post</span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-sm">{p.body}</p>
+                {p.pillar && <p className="mt-1 text-xs text-muted-foreground">{p.pillar}{p.content_format ? ` · ${p.content_format}` : ""}</p>}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <StatusBadge status={p.status} />
+                  <span className="text-[11px] text-muted-foreground">
+                    {p.scheduled_at ? `${formatTime12(p.scheduled_at.slice(11, 16))} · ` : ""}
+                    {(PLATFORM_LABEL[p.platform] ?? p.platform) || "no platform"}
+                  </span>
                 </div>
               </div>
             ))}

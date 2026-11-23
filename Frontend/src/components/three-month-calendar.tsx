@@ -6,7 +6,7 @@ import { CATEGORY_DOT } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 import { toISODate } from "@/lib/dates";
 
-export type DayItem = { name: string; category: string; approval_status: string; publish_status: string; time?: string };
+export type DayItem = { name: string; category: string; approval_status: string; publish_status: string; time?: string; kind?: "event" | "post" };
 
 type Props = {
   start: Date; // any date in the first visible month
@@ -43,14 +43,17 @@ function Month({ month, items, selected, onDayClick, today, compact }: Omit<Prop
           const pending = list.some((x) => x.approval_status === "pending_review");
           const failed = list.some((x) => x.publish_status === "failed");
           const isSel = selected?.has(iso);
-          const cats = [...new Set(list.map((x) => x.category))].slice(0, 3);
+          const eventCount = list.filter((x) => x.kind !== "post").length;
+          const postCount = list.filter((x) => x.kind === "post").length;
+          const summary = [eventCount ? `${eventCount} event${eventCount === 1 ? "" : "s"}` : "", postCount ? `${postCount} post${postCount === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
+          const cats = [...new Set(list.map((x) => (x.kind === "post" ? "post" : x.category)))].slice(0, 3);
           const cell = (
             <button
               type="button"
               data-date={iso}
               onClick={() => onDayClick?.(iso)}
               aria-pressed={isSel}
-              aria-label={`${format(d, "MMMM d, yyyy")}${has ? `, ${list.length} event${list.length > 1 ? "s" : ""}` : ""}${isSel ? ", selected" : ""}`}
+              aria-label={`${format(d, "MMMM d, yyyy")}${has ? `, ${summary}` : ""}${isSel ? ", selected" : ""}`}
               className={cn(
                 "relative flex aspect-square w-full flex-col items-center justify-center rounded-lg text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 has ? (scheduled ? "bg-highlight font-semibold text-highlight-foreground hover:bg-highlight/85" : "bg-secondary font-semibold text-secondary-foreground hover:bg-secondary/70") : "hover:bg-muted",
@@ -62,7 +65,7 @@ function Month({ month, items, selected, onDayClick, today, compact }: Omit<Prop
               {has && (
                 <span className="mt-0.5 flex gap-0.5" aria-hidden>
                   {cats.map((c) => (
-                    <span key={c} className={cn("h-1.5 w-1.5 rounded-full ring-1 ring-card", CATEGORY_DOT[c] ?? "bg-muted-foreground")} />
+                    <span key={c} className={cn("h-1.5 w-1.5 rounded-full ring-1 ring-card", c === "post" ? "bg-foreground" : CATEGORY_DOT[c] ?? "bg-muted-foreground")} />
                   ))}
                 </span>
               )}
@@ -78,7 +81,7 @@ function Month({ month, items, selected, onDayClick, today, compact }: Omit<Prop
               <TooltipTrigger asChild>{cell}</TooltipTrigger>
               <TooltipContent className="max-w-60">
                 {list.slice(0, 5).map((l, i) => (
-                  <div key={i}>{l.time ? `${l.time} · ` : ""}{l.name}</div>
+                  <div key={i}>{l.kind === "post" ? "Content post · " : ""}{l.time ? `${l.time} · ` : ""}{l.name}</div>
                 ))}
                 {list.length > 5 && <div>+{list.length - 5} more</div>}
               </TooltipContent>
@@ -121,6 +124,7 @@ export function ThreeMonthCalendar({ start, onShift, items, selected, onDayClick
           {Object.entries(CATEGORY_DOT).map(([c, cls]) => (
             <span key={c} className="inline-flex items-center gap-1.5"><span className={cn("h-2 w-2 rounded-full", cls)} />{c}</span>
           ))}
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-foreground" />Content post</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-warning" />Needs review</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-highlight" />Scheduled</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-destructive" />Failed</span>

@@ -35,6 +35,7 @@ function ClientSchedulerPage() {
 
   const activeCal = (calendars ?? []).find((c) => c.id === calId) ?? (calendars ?? [])[0] ?? null;
   const { data: events } = useQuery({ queryKey: ["client-events", activeCal?.id], queryFn: () => repo.listClientCalendarEvents(activeCal!.id), enabled: !!activeCal });
+  const { data: posts } = useQuery({ queryKey: ["client-posts", clientId], queryFn: () => repo.listClientPosts(clientId) });
 
   function openNew() {
     setF({ name: "", industry: client?.industry ?? "", region: "", theme: "", default_time: client?.default_time ?? "10:00", timezone: client?.timezone ?? "Asia/Kolkata", scope: client?.scope ?? "GLOBAL" });
@@ -80,7 +81,7 @@ function ClientSchedulerPage() {
             <Button variant="outline" className="ml-auto text-destructive hover:text-destructive" disabled={!activeCal} onClick={() => setDel(activeCal)}><Trash2 /> Delete calendar</Button>
           </div>
 
-          {activeCal && events && <EventWorkspace key={activeCal.id} calendar={activeCal} events={events} globalCalendarId={gcal?.id} />}
+          {activeCal && events && <EventWorkspace key={activeCal.id} calendar={activeCal} events={events} posts={posts ?? []} globalCalendarId={gcal?.id} />}
           {activeCal && (
             <p className="text-xs text-muted-foreground">
               This calendar <strong>references</strong> the Global Calendar ({SCOPE_LABEL[activeCal.scope] ?? "Worldwide"} events). Event names and dates are shared — you set this client's own posting times, approvals and schedule.

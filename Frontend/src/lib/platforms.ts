@@ -13,6 +13,8 @@ export const STATUS_LABEL: Record<string, string> = {
   pending_review: "Needs review",
   approved: "Approved",
   rejected: "Rejected",
+  draft: "Draft",
+  pending_approval: "Pending approval",
   not_scheduled: "Not scheduled",
   scheduled: "Scheduled",
   published: "Published",

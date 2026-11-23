@@ -26,6 +26,7 @@ const blank = (date: string): Form => ({
   source_url: "",
   verification_status: "unverified",
   campaign_topic: "",
+  content_format: "",
   time_override: null,
   hashtags: [],
   platforms: [],
@@ -74,6 +75,7 @@ export function EventFormDialog({
         source_url: event.source_url,
         verification_status: event.verification_status,
         campaign_topic: event.campaign_topic,
+        content_format: event.content_format,
         time_override: event.time_override,
         hashtags: parseList(event.hashtags),
         platforms: parseList(event.platforms),
@@ -193,6 +195,10 @@ export function EventFormDialog({
           <div className="space-y-1.5">
             <Label htmlFor="ev-topic">Campaign topic</Label>
             <Input id="ev-topic" value={f.campaign_topic} onChange={(e) => set("campaign_topic", e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ev-format">Content type</Label>
+            <Input id="ev-format" placeholder="Reel, Carousel, Story…" value={f.content_format} onChange={(e) => set("content_format", e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ev-tags">Hashtags</Label>

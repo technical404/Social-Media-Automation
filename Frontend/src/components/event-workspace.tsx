@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarCheck, CalendarDays, Clock, Download, LayoutGrid, MousePointerClick, Pencil, Plus, RotateCcw, Trash2, Undo2, X } from "lucide-react";
+import { CalendarCheck, CalendarDays, Clock, Download, FileSpreadsheet, LayoutGrid, MousePointerClick, Pencil, Plus, RotateCcw, Trash2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ThreeMonthCalendar, type DayItem } from "@/components/three-month-calendar";
 import { EventFormDialog } from "@/components/event-form-dialog";
+import { ImportSheetDialog } from "@/components/import-sheet-dialog";
 import { CategoryChip, StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/app-shell";
 import { TIMEZONES, formatMDY, formatTime12, initialScheduleDate } from "@/lib/dates";
@@ -41,6 +42,7 @@ function exportRows(events: repo.EventRow[]) {
     name: e.name,
     short_description: e.short_description,
     category: e.category,
+    content_type: e.content_format,
     type: e.event_kind,
     source_url: e.source_url,
     approval: e.approval_status,
@@ -95,6 +97,7 @@ export function EventWorkspace({
   const [bulkTime, setBulkTime] = useState(calendar?.default_time ?? "10:00");
   const [editing, setEditing] = useState<repo.EventRow | "new" | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [filters, setFilters] = useState<ListFilters>({ q: "", category: "all", status: "all", from: "", to: "", sort: "date_asc" });
 
   const byDate = useMemo(() => {
@@ -262,7 +265,15 @@ export function EventWorkspace({
               <MousePointerClick className="h-4 w-4" /> Select dates
             </label>
           )}
-          <div className="ml-auto flex items-end gap-2">
+          <div className="ml-auto flex flex-wrap items-end justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setImportOpen(true)}
+              disabled={!createTarget}
+              title="Import topics, dates, content types and platforms from a spreadsheet"
+            >
+              <FileSpreadsheet /> Import from sheet
+            </Button>
             <Button
               variant="success"
               onClick={() => {
@@ -355,7 +366,7 @@ export function EventWorkspace({
       </section>
 
       {events.length === 0 ? (
-        <EmptyState icon={CalendarDays} title="No events yet" body={calendar ? "Ask the AI for suggestions or add your own event." : "Create a calendar in Event Planner first."} action={calendar ? <Button variant="outline" onClick={() => setEditing("new")}><Plus /> Add event</Button> : undefined} />
+        <EmptyState icon={CalendarDays} title="No events yet" body={calendar ? "Ask the AI for suggestions, add your own event, or import a sheet." : "Create a calendar in Event Planner first."} action={calendar ? <div className="flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={() => setEditing("new")}><Plus /> Add event</Button><Button variant="outline" onClick={() => setImportOpen(true)} disabled={!createTarget}><FileSpreadsheet /> Import from sheet</Button></div> : undefined} />
       ) : view === "calendar" ? (
         <>
           <ThreeMonthCalendar start={start} onShift={(n) => setStart((d) => new Date(d.getFullYear(), d.getMonth() + n, 1))} items={dayItems} selected={dates} onDayClick={toggleDate} today={today} />
@@ -487,6 +498,18 @@ export function EventWorkspace({
           </div>
         </SheetContent>
       </Sheet>
+
+      {createTarget && calendar && (
+        <ImportSheetDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          calendarId={createTarget}
+          calendarName={calendar.name}
+          scope={calendar.scope ?? "GLOBAL"}
+          existingEvents={events}
+          onImported={refresh}
+        />
+      )}
 
       {(createTarget || (editing && editing !== "new")) && (
         <EventFormDialog

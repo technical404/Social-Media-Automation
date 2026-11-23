@@ -265,7 +265,7 @@ export const searchEvents = (q: string) =>
 
 export type EventInput = Pick<
   EventRow,
-  "name" | "short_description" | "detailed_description" | "category" | "start_date" | "end_date" | "importance" | "event_kind" | "source_url" | "verification_status" | "campaign_topic"
+  "name" | "short_description" | "detailed_description" | "category" | "start_date" | "end_date" | "importance" | "event_kind" | "source_url" | "verification_status" | "campaign_topic" | "content_format"
 > & { time_override: string | null; hashtags: string[]; platforms: string[]; scope?: string };
 
 export async function createEvent(calendarId: string, ev: EventInput) {
@@ -273,9 +273,9 @@ export async function createEvent(calendarId: string, ev: EventInput) {
   const scope = ev.scope ?? "GLOBAL";
   await tx([
     {
-      sql: `INSERT INTO events(id, calendar_id, name, short_description, detailed_description, category, start_date, end_date, importance, event_kind, source_url, verification_status, campaign_topic, hashtags, platforms, time_override, scope, event_code, approval_status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending_review')`,
-      params: [id, calendarId, ev.name, ev.short_description, ev.detailed_description, ev.category, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, scope, eventCode(scope, ev.name, ev.start_date)],
+      sql: `INSERT INTO events(id, calendar_id, name, short_description, detailed_description, category, start_date, end_date, importance, event_kind, source_url, verification_status, campaign_topic, content_format, hashtags, platforms, time_override, scope, event_code, approval_status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_review')`,
+      params: [id, calendarId, ev.name, ev.short_description, ev.detailed_description, ev.category, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, ev.content_format, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, scope, eventCode(scope, ev.name, ev.start_date)],
     },
     activityStmt("event.created", `Added "${ev.name}" on ${ev.start_date}`, { entity_type: "event", entity_id: id }),
   ]);
@@ -286,9 +286,9 @@ export async function createEvent(calendarId: string, ev: EventInput) {
 export async function updateEvent(id: string, ev: EventInput) {
   await tx([
     {
-      sql: `UPDATE events SET name=?, short_description=?, detailed_description=?, category=?, start_date=?, end_date=?, importance=?, event_kind=?, source_url=?, verification_status=?, campaign_topic=?, hashtags=?, platforms=?, time_override=?,
+      sql: `UPDATE events SET name=?, short_description=?, detailed_description=?, category=?, start_date=?, end_date=?, importance=?, event_kind=?, source_url=?, verification_status=?, campaign_topic=?, content_format=?, hashtags=?, platforms=?, time_override=?,
             approval_status='pending_review', approved_at=NULL, publish_status = CASE WHEN publish_status = 'scheduled' THEN 'not_scheduled' ELSE publish_status END, updated_at=? WHERE id=?`,
-      params: [ev.name, ev.short_description, ev.detailed_description, ev.category, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, nowIso(), id],
+      params: [ev.name, ev.short_description, ev.detailed_description, ev.category, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, ev.content_format, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, nowIso(), id],
     },
     activityStmt("event.edited", `Edited "${ev.name}" — needs review again`, { entity_type: "event", entity_id: id, level: "warning" }),
   ]);

@@ -14,3 +14,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Local-only artifacts (not part of the app)
+/run_app.py
+/.ohmyagent/settings.json
+/.monkeycode/
+/*.xlsx
+/*.docx

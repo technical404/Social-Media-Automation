@@ -2,13 +2,14 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { CalendarDays, Loader2, Plus, Sparkles } from "lucide-react";
+import { CalendarDays, Loader2, Pencil, Plus, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { EventFormDialog } from "@/components/event-form-dialog";
 import { CategoryChip, StatusBadge } from "@/components/status-badge";
 import { formatMDY, formatTime12 } from "@/lib/dates";
 import { SCOPES, SCOPE_LABEL } from "@/lib/global-calendar";
-import { todayIn, useAppSettings } from "@/lib/hooks";
+import { todayIn, useAppSettings, useRefresh } from "@/lib/hooks";
 import * as repo from "@/lib/repo";
 
 export const Route = createFileRoute("/_app/planner/")({
@@ -26,9 +27,11 @@ export const Route = createFileRoute("/_app/planner/")({
 function PlannerIndex() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const refresh = useRefresh();
   const { timezone } = useAppSettings();
   const today = todayIn(timezone);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<repo.EventRow | null>(null);
   const { data: gcal, isLoading } = useQuery({ queryKey: ["global-calendar"], queryFn: repo.ensureGlobalCalendar });
   const { data: events = [] } = useQuery({ queryKey: ["global-events"], queryFn: repo.listGlobalEvents, enabled: !!gcal });
 
@@ -93,25 +96,51 @@ function PlannerIndex() {
         </Link>
 
         <section aria-label="What's coming up" className="rounded-2xl border bg-card p-5 shadow-soft">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">What's coming up</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Coming up</h2>
+            <Link to="/planner/$calendarId" params={{ calendarId: gcal.id }} className="shrink-0 whitespace-nowrap text-xs font-semibold text-primary hover:underline">
+              All events
+            </Link>
+          </div>
           <ul className="mt-3 space-y-3">
             {upcoming.length === 0 && <li className="text-sm text-muted-foreground">Nothing scheduled ahead yet.</li>}
             {upcoming.map((e) => (
-              <li key={e.id} className="flex items-start gap-3">
-                <span className="w-14 shrink-0 text-sm font-bold tabular-nums">{formatMDY(e.start_date)}</span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">{e.name}</span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                    <CategoryChip category={e.category} />
-                    <StatusBadge status={e.approval_status} />
-                    <span className="text-[11px] text-muted-foreground">{SCOPE_LABEL[e.scope ?? "GLOBAL"] ?? e.scope}</span>
-                  </span>
-                </span>
+              <li key={e.id} className="border-b pb-3 last:border-b-0 last:pb-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="whitespace-nowrap text-sm font-bold tabular-nums">{formatMDY(e.start_date)}</span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    aria-label={`Edit ${e.name}`}
+                    title="Edit this event"
+                    onClick={() => setEditing(e)}
+                  >
+                    <Pencil />
+                  </Button>
+                </div>
+                <p className="mt-0.5 text-sm font-medium leading-snug">{e.name}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 whitespace-nowrap">
+                  <CategoryChip category={e.category} />
+                  <StatusBadge status={e.approval_status} />
+                  <span className="text-[11px] text-muted-foreground">{SCOPE_LABEL[e.scope ?? "GLOBAL"] ?? e.scope}</span>
+                </div>
               </li>
             ))}
           </ul>
         </section>
       </div>
+
+      <EventFormDialog
+        open={!!editing}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null);
+        }}
+        calendarId={gcal.id}
+        event={editing}
+        defaultDate={today}
+        onSaved={refresh}
+      />
     </div>
   );
 }

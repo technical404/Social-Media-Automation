@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { IndustrySelect } from "@/components/industry-select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -26,12 +27,15 @@ export function GenerateDialog({
   onOpenChange,
   calendar,
   selectedDates,
+  initialClientId,
   onProposed,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   calendar: repo.Calendar;
   selectedDates: string[];
+  /** Preselected client when the Global Calendar is opened in a client/theme view. */
+  initialClientId?: string | undefined;
   onProposed: (firstDate: string) => void;
 }) {
   const { data: providers = [] } = useQuery({ queryKey: ["providers"], queryFn: repo.listProviders });
@@ -52,6 +56,8 @@ export function GenerateDialog({
   const [providerId, setProviderId] = useState("default");
   const [clientId, setClientId] = useState(calendar.client_id ?? NO_CLIENT);
   const [clientCalId, setClientCalId] = useState<string | null>(calendar.client_id ? calendar.id : null);
+  const [clientPlatforms, setClientPlatforms] = useState<string[]>([]);
+  const [useClientProfile, setUseClientProfile] = useState(true);
   const [clientLoading, setClientLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -62,6 +68,7 @@ export function GenerateDialog({
   async function pickClient(id: string) {
     setClientId(id);
     setClientCalId(null);
+    setClientPlatforms([]);
     if (id === NO_CLIENT) {
       setIndustry(calendar.industry);
       setRegion(calendar.region);
@@ -70,12 +77,18 @@ export function GenerateDialog({
     }
     setClientLoading(true);
     try {
-      const [client, calendars] = await Promise.all([repo.getClient(id), repo.listCalendarsByClient(id)]);
+      const [client, calendars, handles] = await Promise.all([
+        repo.getClient(id),
+        repo.listCalendarsByClient(id),
+        repo.listClientSocialHandles(id),
+      ]);
       const cal = calendars[0];
       setClientCalId(cal?.id ?? null);
       setIndustry(cal?.industry || client?.industry || "");
       setRegion(cal?.region || "");
-      setTheme(cal?.theme || "");
+      setTheme(cal?.theme || client?.theme || "");
+      setClientPlatforms([...new Set(handles.map((h) => h.platform))]);
+      setUseClientProfile(true);
     } catch (e) {
       toast.error(`Could not load that client: ${(e as Error).message}`);
     } finally {
@@ -86,6 +99,27 @@ export function GenerateDialog({
   useEffect(() => {
     if (open && selectedDates.length) setKind("dates");
   }, [open, selectedDates.length]);
+
+  useEffect(() => {
+    if (open && !fixedClientId && initialClientId && clientId === NO_CLIENT) void pickClient(initialClientId);
+    // pickClient is stable for this dialog's lifetime; only react to opening with a preselected client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, fixedClientId, initialClientId]);
+
+  useEffect(() => {
+    if (!open || !fixedClientId) return;
+    let cancelled = false;
+    repo.listClientSocialHandles(fixedClientId)
+      .then((handles) => {
+        if (!cancelled) setClientPlatforms([...new Set(handles.map((h) => h.platform))]);
+      })
+      .catch(() => {
+        if (!cancelled) setClientPlatforms([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, fixedClientId]);
 
   function buildScope(): Scope | string {
     switch (kind) {
@@ -123,7 +157,18 @@ export function GenerateDialog({
   }
 
   async function generateEvents(scope: Scope) {
-    const req: PlanRequest = { prompt, scope, industry, region, theme, maxEvents, client_id: targetClientId, client_name: targetClient?.name ?? null };
+    const req: PlanRequest = {
+      prompt,
+      scope,
+      industry,
+      region,
+      theme,
+      maxEvents,
+      client_id: targetClientId,
+      client_name: targetClient?.name ?? null,
+      client_description: targetClient?.description ?? null,
+      use_client_profile: useClientProfile,
+    };
     const { system, user } = buildEventPrompt(req);
     const call = (u: string) => runAi({ providerId: providerId === "default" ? null : providerId, task: "event_calendar", system, user: u, json: true, mock: () => mockEventResponse(req) });
     let res = await call(user);
@@ -176,7 +221,19 @@ export function GenerateDialog({
   }
 
   async function generateTopics(scope: Scope, clientId: string, clientName: string | null) {
-    const req: ContentPlanRequest = { prompt, scope, industry, region, theme, maxTopics, client_id: clientId, client_name: clientName };
+    const req: ContentPlanRequest = {
+      prompt,
+      scope,
+      industry,
+      region,
+      theme,
+      maxTopics,
+      client_id: clientId,
+      client_name: clientName,
+      client_description: targetClient?.description ?? null,
+      use_client_profile: useClientProfile,
+      platforms: clientPlatforms,
+    };
     const { system, user } = buildTopicPrompt(req);
     const call = (u: string) => runAi({ providerId: providerId === "default" ? null : providerId, task: "content_calendar", system, user: u, json: true, mock: () => mockTopicResponse(req) });
     let res = await call(user);
@@ -203,7 +260,12 @@ export function GenerateDialog({
     const existing = existingRows
       .filter((p) => p.topic && p.scheduled_at)
       .map((p) => ({ date: (p.scheduled_at as string).slice(0, 10), topic: p.topic, platform: p.platform }));
-    const { accepted, rejected } = validateTopics(parsed.value, { scope, existing, maxTopics });
+    const { accepted, rejected } = validateTopics(parsed.value, {
+      scope,
+      existing,
+      maxTopics,
+      platforms: clientPlatforms.length ? clientPlatforms : undefined,
+    });
     if (truncated) {
       if (!accepted.length) {
         throw new Error("The AI answer was cut off before any complete topic could be recovered. Lower “Max topics”, or raise this provider's “Max output” in AI Providers and try again.");
@@ -335,6 +397,26 @@ export function GenerateDialog({
                     ? `These events are client-specific: they will appear only in ${targetClient.name}'s calendar.`
                     : "Choose a client to keep these events out of the shared Global Calendar."}
               </p>
+            </div>
+          )}
+          {targetClient && (
+            <div className="flex items-start gap-2.5 rounded-xl border bg-muted/40 p-3">
+              <Checkbox
+                id="g-client-profile"
+                checked={useClientProfile}
+                disabled={!targetClient.description.trim()}
+                onCheckedChange={(v) => setUseClientProfile(v === true)}
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="g-client-profile">Use client description as system prompt</Label>
+                <p className="text-xs text-muted-foreground">
+                  {targetClient.description.trim()
+                    ? `The AI will treat ${targetClient.name}'s profile as its system instruction, so ideas stay on the client's theme.`
+                    : "Add a description to this client's profile to use it as the AI system prompt."}
+                  {mode === "topics" && clientPlatforms.length > 0 && ` Platforms: ${clientPlatforms.join(", ")}.`}
+                </p>
+              </div>
             </div>
           )}
           <div className="grid gap-3 sm:grid-cols-3">

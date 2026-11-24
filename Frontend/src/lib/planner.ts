@@ -91,6 +91,9 @@ export type PlanRequest = {
   /** When set, the generated events belong to this client instead of the Global Calendar. */
   client_id?: string | null;
   client_name?: string | null;
+  /** Injected into the system prompt when the user opts in. */
+  client_description?: string | null;
+  use_client_profile?: boolean;
 };
 
 export function addDays(iso: string, n: number): string {
@@ -139,6 +142,13 @@ export function buildEventPrompt(req: PlanRequest): { system: string; user: stri
       : `between ${w.start} and ${w.end} inclusive`;
   const system = [
     "You are a careful events researcher for social media teams.",
+    ...(req.use_client_profile && req.client_description
+      ? [
+          `Client profile: ${req.client_description}`,
+          "Treat the client profile as your primary system instruction: every event and angle must fit this client's theme, audience and tone.",
+          req.theme ? `Client theme: ${req.theme}.` : "",
+        ]
+      : []),
     "List real, widely recognised observances (awareness days/weeks/months, public holidays, industry events) and, separately, clearly-labelled campaign ideas.",
     "Use the correct date for the requested year; compute moving observances for that year.",
     "NEVER invent an official observance. If you are not sure an observance is official, set event_kind to \"ai_suggestion\".",
@@ -149,7 +159,7 @@ export function buildEventPrompt(req: PlanRequest): { system: string; user: stri
     "Your answer must start with { and end with }. Keep every string short so the JSON is always closed properly.",
     "Keep short_description under 90 characters and detailed_description under 160 characters. Use at most 5 hashtags. Do not include image_prompt or video_prompt.",
     'Exact shape: {"events":[{"name":"","start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","short_description":"","detailed_description":"","category":"","event_kind":"official_observance|ai_suggestion","importance":"low|medium|high","source_url":"","campaign_topic":"","content_format":"","hashtags":["#tag"]}]}',
-  ].join(" ");
+  ].filter(Boolean).join(" ");
   const user = [
     `Request: ${req.prompt || "Build an event calendar."}`,
     `Industry: ${req.industry || "general"}.`,

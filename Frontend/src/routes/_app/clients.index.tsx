@@ -15,6 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONES, formatTime12 } from "@/lib/dates";
 import { SCOPES, SCOPE_LABEL } from "@/lib/global-calendar";
+import { PLATFORM_LABEL, PLATFORMS } from "@/lib/platforms";
 import { useAppSettings, useRefresh } from "@/lib/hooks";
 import * as repo from "@/lib/repo";
 
@@ -28,7 +29,8 @@ export const Route = createFileRoute("/_app/clients/")({
   component: ClientsPage,
 });
 
-const EMPTY = { name: "", description: "", industry: "", timezone: "Asia/Kolkata", default_time: "10:00", scope: "GLOBAL" };
+const EMPTY = { name: "", description: "", industry: "", theme: "", timezone: "Asia/Kolkata", default_time: "10:00", scope: "GLOBAL" };
+type HandleDraft = { platform: string; handle: string };
 
 function ClientsPage() {
   const navigate = useNavigate();
@@ -36,26 +38,37 @@ function ClientsPage() {
   const { timezone } = useAppSettings();
   const { data: clients = [], isLoading } = useQuery({ queryKey: ["clients"], queryFn: repo.listClients });
   const { data: counts = [] } = useQuery({ queryKey: ["client-calendar-counts"], queryFn: repo.countCalendarsByClient });
+  const { data: allHandles = [] } = useQuery({ queryKey: ["client-social-handles"], queryFn: repo.listAllClientSocialHandles });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<repo.Client | null>(null);
   const [del, setDel] = useState<repo.Client | null>(null);
   const [f, setF] = useState(EMPTY);
+  const [handles, setHandles] = useState<HandleDraft[]>([]);
 
   const countMap = new Map(counts.map((c) => [c.client_id, c.n]));
+  const handlesByClient = new Map<string, repo.ClientSocialHandle[]>();
+  for (const handle of allHandles) {
+    const list = handlesByClient.get(handle.client_id) ?? [];
+    list.push(handle);
+    handlesByClient.set(handle.client_id, list);
+  }
 
   function openNew() {
     setEditing(null);
     setF({ ...EMPTY, timezone });
+    setHandles([]);
     setOpen(true);
   }
   function openEdit(c: repo.Client) {
     setEditing(c);
-    setF({ name: c.name, description: c.description, industry: c.industry, timezone: c.timezone, default_time: c.default_time, scope: c.scope });
+    setF({ name: c.name, description: c.description, industry: c.industry, theme: c.theme, timezone: c.timezone, default_time: c.default_time, scope: c.scope });
+    setHandles((handlesByClient.get(c.id) ?? []).map((h) => ({ platform: h.platform, handle: h.handle })));
     setOpen(true);
   }
   async function save() {
     if (!f.name.trim()) return void toast.error("Give the client a name.");
-    await repo.saveClient(editing?.id ?? null, { ...f, name: f.name.trim() });
+    const id = await repo.saveClient(editing?.id ?? null, { ...f, name: f.name.trim() });
+    await repo.replaceClientSocialHandles(id, handles);
     toast.success(editing ? "Client updated" : "Client created");
     setOpen(false);
     refresh();
@@ -103,6 +116,17 @@ function ClientsPage() {
                   <div><dt className="text-xs text-muted-foreground">Default time</dt><dd className="font-semibold">{formatTime12(c.default_time)}</dd></div>
                 </dl>
                 {c.description && <p className="mt-3 line-clamp-2 text-xs text-muted-foreground">{c.description}</p>}
+                {c.theme && <p className="mt-2 text-xs font-medium text-muted-foreground">Theme: {c.theme}</p>}
+                {(handlesByClient.get(c.id) ?? []).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {(handlesByClient.get(c.id) ?? []).slice(0, 4).map((h) => (
+                      <span key={h.id} className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
+                        {PLATFORM_LABEL[h.platform] ?? h.platform} · {h.handle}
+                      </span>
+                    ))}
+                    {(handlesByClient.get(c.id) ?? []).length > 4 && <span className="text-[11px] text-muted-foreground">+{(handlesByClient.get(c.id) ?? []).length - 4}</span>}
+                  </div>
+                )}
               </Link>
             </li>
           ))}
@@ -110,7 +134,7 @@ function ClientsPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editing ? "Edit client" : "New client"}</DialogTitle>
             <DialogDescription>{editing ? "Update this client's details." : "You can add calendars and events right after."}</DialogDescription>
@@ -119,6 +143,7 @@ function ClientsPage() {
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-name">Name</Label><Input id="cl-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Acme Hospital" /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-ind">Industry</Label><IndustrySelect id="cl-ind" value={f.industry} onChange={(v) => setF({ ...f, industry: v })} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-desc">Description (optional)</Label><Textarea id="cl-desc" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Context, contacts, goals…" /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cl-theme">Content theme (optional)</Label><Input id="cl-theme" value={f.theme} onChange={(e) => setF({ ...f, theme: e.target.value })} placeholder="Preventive health" /><p className="text-xs text-muted-foreground">Used to filter the client's Global Calendar view and to keep AI ideas on-theme.</p></div>
             <div className="space-y-1.5"><Label htmlFor="cl-time">Default posting time</Label><Input id="cl-time" type="time" value={f.default_time} onChange={(e) => setF({ ...f, default_time: e.target.value })} /></div>
             <div className="space-y-1.5">
               <Label>Time zone</Label>
@@ -134,6 +159,44 @@ function ClientsPage() {
                 <SelectContent>{SCOPES.map((s) => <SelectItem key={s} value={s}>{SCOPE_LABEL[s] ?? s}</SelectItem>)}</SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">Worldwide events always show; this adds the client's own country's observances.</p>
+            </div>
+            <div className="space-y-2 rounded-xl border bg-muted/30 p-3 sm:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Label>Social handles</Label>
+                  <p className="text-xs text-muted-foreground">Only these platforms can be chosen on this client's events and posts.</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => setHandles([...handles, { platform: "instagram", handle: "" }])}>
+                  <Plus /> Add handle
+                </Button>
+              </div>
+              {handles.length === 0 && <p className="text-xs text-muted-foreground">No handles yet. Add Instagram, Facebook, LinkedIn or another platform.</p>}
+              {handles.map((handle, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Select value={handle.platform} onValueChange={(platform) => setHandles(handles.map((h, i) => (i === index ? { ...h, platform } : h)))}>
+                    <SelectTrigger className="w-36" aria-label={`Platform ${index + 1}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PLATFORMS.map((platform) => <SelectItem key={platform} value={platform}>{PLATFORM_LABEL[platform]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={handle.handle}
+                    onChange={(e) => setHandles(handles.map((h, i) => (i === index ? { ...h, handle: e.target.value } : h)))}
+                    placeholder="@handle or page name"
+                    aria-label={`Handle for platform ${index + 1}`}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="shrink-0 text-destructive hover:text-destructive"
+                    aria-label={`Remove platform ${index + 1}`}
+                    onClick={() => setHandles(handles.filter((_, i) => i !== index))}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
             </div>
           </div>
           <DialogFooter><Button onClick={save}>{editing ? "Save changes" : "Create client"}</Button></DialogFooter>

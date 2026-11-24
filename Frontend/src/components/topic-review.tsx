@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { CONTENT_TYPES, withCurrent } from "@/lib/planner";
-import { PLATFORMS, PLATFORM_LABEL } from "@/lib/platforms";
+import { withCurrent } from "@/lib/planner";
+import { PLATFORMS, PLATFORM_LABEL, contentTypesForPlatforms } from "@/lib/platforms";
 import { isValidISODate } from "@/lib/dates";
 import type { ContentPlanRequest, TopicProposal } from "@/lib/content-planner";
 import * as repo from "@/lib/repo";
@@ -52,6 +52,7 @@ export function TopicReview({ run, calendar, onDone }: { run: repo.GenerationRun
   const request = JSON.parse(run.request) as ContentPlanRequest;
   const clientId = request.client_id ?? null;
   const clientName = request.client_name ?? null;
+  const allowedPlatforms = request.platforms?.length ? request.platforms : PLATFORMS;
   const picked = items.filter((t) => t.selected).length;
 
   const save = (next: TopicProposal[]) => {
@@ -124,13 +125,16 @@ export function TopicReview({ run, calendar, onDone }: { run: repo.GenerationRun
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <Input className="h-8" value={t.pillar} onChange={(e) => patch(t.key, { pillar: e.target.value })} placeholder="Content pillar" aria-label="Content pillar" />
-              <Select value={t.platform} onValueChange={(v) => patch(t.key, { platform: v })}>
+              <Select value={t.platform} onValueChange={(v) => {
+                const allowed = contentTypesForPlatforms([v]);
+                patch(t.key, { platform: v, format: allowed.includes(t.format) ? t.format : allowed[0] ?? "" });
+              }}>
                 <SelectTrigger className="h-8" aria-label="Platform"><SelectValue /></SelectTrigger>
-                <SelectContent>{withCurrent(PLATFORMS, t.platform).map((p) => <SelectItem key={p} value={p}>{PLATFORM_LABEL[p] ?? p}</SelectItem>)}</SelectContent>
+                <SelectContent>{withCurrent(allowedPlatforms, t.platform).map((p) => <SelectItem key={p} value={p}>{PLATFORM_LABEL[p] ?? p}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={t.format} onValueChange={(v) => patch(t.key, { format: v })}>
                 <SelectTrigger className="h-8" aria-label="Content format"><SelectValue /></SelectTrigger>
-                <SelectContent>{withCurrent(CONTENT_TYPES, t.format).map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+                <SelectContent>{withCurrent(contentTypesForPlatforms([t.platform]), t.format).map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <Input className="mt-2 h-8" value={t.brief} onChange={(e) => patch(t.key, { brief: e.target.value })} placeholder="Brief or content angle" aria-label="Brief" />

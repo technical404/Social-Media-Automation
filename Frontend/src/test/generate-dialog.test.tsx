@@ -10,9 +10,10 @@ vi.mock("@/lib/ai/client", () => ({ runAi: vi.fn() }));
 
 vi.mock("@/lib/repo", () => ({
   listProviders: vi.fn(async () => [{ id: "p1", name: "Test provider", enabled: 1, is_default: 1, fallback_priority: 0 }]),
-  listClients: vi.fn(async () => [{ id: "c1", name: "Acme", description: "", industry: "Hospital", timezone: "Asia/Kolkata", default_time: "10:00", scope: "IN", created_at: "", updated_at: "" }]),
-  getClient: vi.fn(async () => ({ id: "c1", name: "Acme", description: "", industry: "Hospital", timezone: "Asia/Kolkata", default_time: "10:00", scope: "IN", created_at: "", updated_at: "" })),
+  listClients: vi.fn(async () => [{ id: "c1", name: "Acme", description: "Hospital care for families", theme: "Health", industry: "Hospital", timezone: "Asia/Kolkata", default_time: "10:00", scope: "IN", created_at: "", updated_at: "" }]),
+  getClient: vi.fn(async () => ({ id: "c1", name: "Acme", description: "Hospital care for families", theme: "Health", industry: "Hospital", timezone: "Asia/Kolkata", default_time: "10:00", scope: "IN", created_at: "", updated_at: "" })),
   listCalendarsByClient: vi.fn(async () => [{ id: "cc1", name: "Acme calendar", industry: "Hospital", region: "India", theme: "Health", default_time: "10:00", timezone: "Asia/Kolkata", client_id: "c1", is_global: 0, scope: "IN", created_at: "", updated_at: "" }]),
+  listClientSocialHandles: vi.fn(async () => [{ id: "h1", client_id: "c1", platform: "instagram", handle: "@acme", display_name: "", note: "", created_at: "", updated_at: "" }]),
   listClientCalendarEvents: vi.fn(async () => []),
   listClientPosts: vi.fn(async () => []),
   listEvents: vi.fn(async () => []),
@@ -103,7 +104,10 @@ describe("GenerateDialog", () => {
       industry: "Hospital",
       region: "India",
       theme: "Health",
+      client_description: "Hospital care for families",
+      use_client_profile: true,
     });
+    expect(vi.mocked(runAi).mock.calls[0]?.[0]).toMatchObject({ system: expect.stringContaining("Hospital care for families") });
     expect(repo.listClientCalendarEvents).toHaveBeenCalledWith("cc1");
     expect(toast.warning).toHaveBeenCalledWith(expect.stringMatching(/complete events recovered/i), expect.objectContaining({ description: expect.stringMatching(/for Acme/i) }));
   });
@@ -127,7 +131,7 @@ describe("GenerateDialog", () => {
 
     await waitFor(() => expect(repo.saveRun).toHaveBeenCalledTimes(1));
     const [, req, , accepted, , kind] = vi.mocked(repo.saveRun).mock.calls[0]!;
-    expect(req).toMatchObject({ client_id: "c1", client_name: "Acme", maxTopics: 12 });
+    expect(req).toMatchObject({ client_id: "c1", client_name: "Acme", maxTopics: 12, platforms: ["instagram"], use_client_profile: true });
     expect((accepted as { topic: string }[]).map((t) => t.topic)).toEqual(["Diabetes care"]);
     expect(kind).toBe("topics");
     expect(repo.listClientPosts).toHaveBeenCalledWith("c1");

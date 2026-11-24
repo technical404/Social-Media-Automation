@@ -140,4 +140,22 @@ describe("local SQLite schema", () => {
     db.run("INSERT INTO event_generation_runs(id, calendar_id, kind, request, proposals, rejected) VALUES ('r2','c1','topics','{}','[]','[]')");
     expect(sqlAll<{ kind: string }>(db, "SELECT kind FROM event_generation_runs WHERE id = 'r2'")[0]?.kind).toBe("topics");
   });
+
+  it("stores a client theme and social handles, and removes handles with the client", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name, theme) VALUES ('cl1','Acme','Preventive health')");
+    db.run("INSERT INTO client_social_handles(id, client_id, platform, handle, display_name) VALUES ('h1','cl1','instagram','@acme','Acme care')");
+    db.run("INSERT INTO client_social_handles(id, client_id, platform, handle) VALUES ('h2','cl1','facebook','acme.page')");
+
+    const client = sqlAll<{ theme: string }>(db, "SELECT theme FROM clients WHERE id = 'cl1'");
+    expect(client[0]?.theme).toBe("Preventive health");
+    const handles = sqlAll<{ platform: string; handle: string }>(db, "SELECT platform, handle FROM client_social_handles WHERE client_id = 'cl1' ORDER BY platform");
+    expect(handles).toEqual([
+      { platform: "facebook", handle: "acme.page" },
+      { platform: "instagram", handle: "@acme" },
+    ]);
+
+    sqlRun(db, "DELETE FROM clients WHERE id = 'cl1'");
+    expect(sqlAll(db, "SELECT * FROM client_social_handles").length).toBe(0);
+  });
 });

@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TIMEZONES } from "@/lib/dates";
 import { SCOPES, SCOPE_LABEL } from "@/lib/global-calendar";
+import { PLATFORM_LABEL } from "@/lib/platforms";
 import { useRefresh } from "@/lib/hooks";
 import * as repo from "@/lib/repo";
 
@@ -26,6 +27,7 @@ function ClientSchedulerPage() {
   const { clientId } = Route.useParams();
   const refresh = useRefresh();
   const { data: client } = useQuery({ queryKey: ["client", clientId], queryFn: () => repo.getClient(clientId) });
+  const { data: handles = [] } = useQuery({ queryKey: ["client-social-handles", clientId], queryFn: () => repo.listClientSocialHandles(clientId) });
   const { data: gcal } = useQuery({ queryKey: ["global-calendar"], queryFn: repo.ensureGlobalCalendar });
   const { data: calendars, isLoading } = useQuery({ queryKey: ["client-calendars", clientId], queryFn: () => repo.listCalendarsByClient(clientId) });
   const [calId, setCalId] = useState<string | null>(null);
@@ -60,6 +62,16 @@ function ClientSchedulerPage() {
           <Link to="/clients" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> All clients</Link>
           <h1 className="text-3xl font-semibold sm:text-4xl">{client.name}</h1>
           <p className="mt-1 text-muted-foreground">{[client.industry || "General", client.timezone].filter(Boolean).join(" · ")} · {(calendars ?? []).length} calendar{(calendars ?? []).length === 1 ? "" : "s"}</p>
+          {(client.theme || handles.length > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {client.theme && <span className="rounded-full bg-highlight/15 px-2.5 py-0.5 text-xs font-medium">Theme: {client.theme}</span>}
+              {handles.map((handle) => (
+                <span key={handle.id} className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
+                  {PLATFORM_LABEL[handle.platform] ?? handle.platform} · {handle.handle}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <Button variant="highlight" onClick={openNew}><Plus /> New calendar</Button>
       </div>

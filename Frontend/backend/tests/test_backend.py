@@ -53,7 +53,11 @@ class BackendTest(unittest.TestCase):
     def test_health_reports_schema_and_worker(self):
         code, h = call("/api/health")
         self.assertEqual(code, 200)
-        self.assertIn(h["schema"], ("001_init", "002_content", "003_provider_comments", "004_clients", "005_client_calendars", "006_global_calendar"))
+        self.assertIn(h["schema"], (
+            "001_init", "002_content", "003_provider_comments", "004_clients",
+            "005_client_calendars", "006_global_calendar", "007_client_event_ownership",
+            "008_topic_calendar", "009_client_social_handles",
+        ))
         self.assertTrue(h["worker"]["running"])
 
     def test_other_websites_are_refused(self):

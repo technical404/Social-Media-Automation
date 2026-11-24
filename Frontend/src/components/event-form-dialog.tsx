@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CATEGORIES, CONTENT_TYPES, withCurrent } from "@/lib/planner";
 import { isValidISODate } from "@/lib/dates";
-import { PLATFORM_LABEL, PLATFORMS } from "@/lib/platforms";
+import { META_PLATFORMS, PLATFORM_GROUPS, PLATFORM_LABEL, PLATFORMS, contentTypesForPlatforms, platformSummary } from "@/lib/platforms";
 import * as repo from "@/lib/repo";
 import { cn } from "@/lib/utils";
 
@@ -77,33 +77,73 @@ function FieldLabel({ label, htmlFor, hint }: { label: string; htmlFor?: string;
   );
 }
 
-function PlatformMultiSelect({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
-  const labels = value.map((platform) => PLATFORM_LABEL[platform] ?? platform);
+function PlatformMultiSelect({ value, onChange, allowed }: { value: string[]; onChange: (value: string[]) => void; allowed?: string[] | undefined }) {
+  const clientPlatforms = allowed ? PLATFORMS.filter((p) => allowed.includes(p)) : PLATFORMS;
+  // Keep a value that is already on the event editable even if the client no longer lists it.
+  const listed = [...clientPlatforms, ...value.filter((p) => !clientPlatforms.includes(p))];
+  const metaPlatforms = META_PLATFORMS.filter((p) => listed.includes(p));
+  const allMeta = metaPlatforms.length === META_PLATFORMS.length && metaPlatforms.every((p) => value.includes(p));
+  const setMany = (platforms: string[]) => onChange(PLATFORMS.filter((p) => platforms.includes(p)));
+  const toggleMeta = (checked: boolean) => {
+    const others = value.filter((p) => !META_PLATFORMS.includes(p as (typeof META_PLATFORMS)[number]));
+    setMany(checked ? [...others, ...metaPlatforms] : others);
+  };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="outline" className="w-full justify-between font-normal" aria-label="Platforms">
           <span className={cn("truncate text-left", !value.length && "text-muted-foreground")}>
-            {value.length ? labels.join(", ") : "Select platforms"}
+            {value.length ? platformSummary(value) : "Select platforms"}
           </span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="start" className="w-64">
         <DropdownMenuLabel>Platforms</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {PLATFORMS.map((platform) => (
+        {metaPlatforms.length > 0 && (
+          <>
+            <DropdownMenuLabel>Meta</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={allMeta}
+              disabled={metaPlatforms.length < META_PLATFORMS.length}
+              onCheckedChange={(checked) => toggleMeta(checked === true)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              Meta <span className="ml-1 text-xs text-muted-foreground">(Facebook + Instagram)</span>
+            </DropdownMenuCheckboxItem>
+            {PLATFORM_GROUPS.find((g) => g.id === "meta")?.platforms
+              .filter((p) => listed.includes(p))
+              .map((platform) => (
+                <DropdownMenuCheckboxItem
+                  key={platform}
+                  checked={value.includes(platform)}
+                  onCheckedChange={(checked) => setMany(checked === true ? [...value, platform] : value.filter((p) => p !== platform))}
+                  onSelect={(event) => event.preventDefault()}
+                  className="pl-6"
+                >
+                  {PLATFORM_LABEL[platform]}
+                </DropdownMenuCheckboxItem>
+              ))}
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {PLATFORM_GROUPS.filter((group) => group.id !== "meta" && group.platforms.some((p) => listed.includes(p))).map((group) => (
           <DropdownMenuCheckboxItem
-            key={platform}
-            checked={value.includes(platform)}
+            key={group.id}
+            checked={group.platforms.every((p) => value.includes(p))}
             onCheckedChange={(checked) => {
-              onChange(PLATFORMS.filter((p) => (p === platform ? checked === true : value.includes(p))));
+              const next = checked === true
+                ? [...value, ...group.platforms.filter((p) => listed.includes(p))]
+                : value.filter((p) => !group.platforms.includes(p));
+              setMany(next);
             }}
             onSelect={(event) => event.preventDefault()}
           >
-            {PLATFORM_LABEL[platform]}
+            {group.label}
           </DropdownMenuCheckboxItem>
         ))}
+        {!listed.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">This client has no social handles yet.</p>}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -115,6 +155,7 @@ export function EventFormDialog({
   calendarId,
   event,
   defaultDate,
+  allowedPlatforms,
   onSaved,
 }: {
   open: boolean;
@@ -122,6 +163,8 @@ export function EventFormDialog({
   calendarId: string;
   event: repo.EventRow | null;
   defaultDate: string;
+  /** Platforms the client actually has handles for; omitted means every platform. */
+  allowedPlatforms?: string[] | undefined;
   onSaved: () => void;
 }) {
   const [f, setF] = useState<Form>(blank(defaultDate));
@@ -156,6 +199,15 @@ export function EventFormDialog({
   }, [open, event, defaultDate]);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
+  const setPlatforms = (platforms: string[]) => setF((x) => {
+    const allowed = contentTypesForPlatforms(platforms);
+    return {
+      ...x,
+      platforms,
+      content_format: x.content_format && !allowed.includes(x.content_format) ? "" : x.content_format,
+    };
+  });
+  const contentOptions = f.platforms.length ? contentTypesForPlatforms(f.platforms) : [...CONTENT_TYPES];
 
   async function save() {
     if (!f.name.trim()) return void toast.error("Give the event a name.");
@@ -203,8 +255,21 @@ export function EventFormDialog({
               <Input id="ev-name" value={f.name} onChange={(e) => set("name", e.target.value)} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <FieldLabel label="Platforms" hint="Choose every social platform this event should be posted on. Pick as many as you need." />
-              <PlatformMultiSelect value={f.platforms} onChange={(platforms) => set("platforms", platforms)} />
+              <FieldLabel label="Platforms" hint="Choose every social platform this event should be posted on. Only platforms with a handle on this client's profile can be selected." />
+              <PlatformMultiSelect value={f.platforms} onChange={setPlatforms} allowed={allowedPlatforms} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <FieldLabel label="Content type" htmlFor="ev-format" hint="The format to produce. The list follows the platform you choose first." />
+              <Select value={f.content_format || NONE} onValueChange={(v) => set("content_format", v === NONE ? "" : v)} disabled={!f.platforms.length}>
+                <SelectTrigger id="ev-format" aria-label="Content type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>Not set</SelectItem>
+                  {withCurrent(contentOptions, f.content_format).map((contentType) => (
+                    <SelectItem key={contentType} value={contentType}>{contentType}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{f.platforms.length ? "Formats supported by the selected platform(s)." : "Choose a platform first to see its content types."}</p>
             </div>
             <div className="space-y-1.5">
               <FieldLabel label="Start date" htmlFor="ev-start" hint="The first day this event applies to." />
@@ -258,18 +323,6 @@ export function EventFormDialog({
             <div className="space-y-1.5">
               <FieldLabel label="Campaign topic" htmlFor="ev-topic" hint="The campaign or theme this event belongs to, used for grouping." />
               <Input id="ev-topic" value={f.campaign_topic} onChange={(e) => set("campaign_topic", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <FieldLabel label="Content type" htmlFor="ev-format" hint="The format to produce, such as a reel, carousel, static post, or story." />
-              <Select value={f.content_format || NONE} onValueChange={(v) => set("content_format", v === NONE ? "" : v)}>
-                <SelectTrigger id="ev-format" aria-label="Content type"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Not set</SelectItem>
-                  {withCurrent(CONTENT_TYPES, f.content_format).map((contentType) => (
-                    <SelectItem key={contentType} value={contentType}>{contentType}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <FieldLabel label="Hashtags" htmlFor="ev-tags" hint="Suggested hashtags. Separate them with spaces or commas; # is added automatically." />

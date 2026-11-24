@@ -566,6 +566,7 @@ const USER_TABLES = [
   "events",
   "event_generation_runs",
   "client_event_state",
+  "client_social_handles",
   "calendars",
   "clients",
   "ai_request_logs",
@@ -576,27 +577,71 @@ const USER_TABLES = [
 ];
 
 // ---------- clients ----------
-export type Client = { id: string; name: string; description: string; industry: string; timezone: string; default_time: string; scope: string; created_at: string; updated_at: string };
+export type Client = { id: string; name: string; description: string; industry: string; theme: string; timezone: string; default_time: string; scope: string; created_at: string; updated_at: string };
+
+export type ClientSocialHandle = {
+  id: string;
+  client_id: string;
+  platform: string;
+  handle: string;
+  display_name: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+};
 
 export const listClients = () => all<Client>("SELECT * FROM clients ORDER BY name");
 export const getClient = (id: string) => all<Client>("SELECT * FROM clients WHERE id = ?", [id]).then((r) => r[0] ?? null);
 
-export async function saveClient(id: string | null, c: { name: string; description: string; industry: string; timezone: string; default_time: string; scope: string }): Promise<string> {
+export async function saveClient(id: string | null, c: { name: string; description: string; industry: string; theme?: string; timezone: string; default_time: string; scope: string }): Promise<string> {
   const pid = id ?? uid();
   const now = nowIso();
+  const theme = c.theme ?? "";
   if (id) {
-    await run("UPDATE clients SET name=?, description=?, industry=?, timezone=?, default_time=?, scope=?, updated_at=? WHERE id=?", [c.name, c.description, c.industry, c.timezone, c.default_time, c.scope, now, pid]);
+    await run("UPDATE clients SET name=?, description=?, industry=?, theme=?, timezone=?, default_time=?, scope=?, updated_at=? WHERE id=?", [c.name, c.description, c.industry, theme, c.timezone, c.default_time, c.scope, now, pid]);
   } else {
-    await run("INSERT INTO clients(id,name,description,industry,timezone,default_time,scope,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", [pid, c.name, c.description, c.industry, c.timezone, c.default_time, c.scope, now, now]);
+    await run("INSERT INTO clients(id,name,description,industry,theme,timezone,default_time,scope,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)", [pid, c.name, c.description, c.industry, theme, c.timezone, c.default_time, c.scope, now, now]);
   }
   await logActivity(id ? "client.updated" : "client.created", `${id ? "Updated" : "Created"} client "${c.name}"`, { entity_type: "client", entity_id: pid });
   return pid;
+}
+
+export const listAllClientSocialHandles = () =>
+  all<ClientSocialHandle>("SELECT * FROM client_social_handles ORDER BY client_id, platform, handle");
+
+export const listClientSocialHandles = (clientId: string) =>
+  all<ClientSocialHandle>("SELECT * FROM client_social_handles WHERE client_id = ? ORDER BY platform, handle", [clientId]);
+
+/**
+ * Replace a client's full set of handles in one transaction. Empty handles are
+ * dropped so an unfinished editor row never blocks saving the client.
+ */
+export async function replaceClientSocialHandles(clientId: string, handles: { platform: string; handle: string; display_name?: string; note?: string }[]) {
+  const clean = handles
+    .map((h) => ({
+      platform: h.platform.trim().toLowerCase(),
+      handle: h.handle.trim(),
+      display_name: (h.display_name ?? "").trim(),
+      note: (h.note ?? "").trim(),
+    }))
+    .filter((h) => h.platform && h.handle)
+    .filter((h, i, list) => list.findIndex((x) => x.platform === h.platform && x.handle.toLowerCase() === h.handle.toLowerCase()) === i);
+  const now = nowIso();
+  const stmts: Stmt[] = [{ sql: "DELETE FROM client_social_handles WHERE client_id = ?", params: [clientId] }];
+  for (const h of clean) {
+    stmts.push({
+      sql: "INSERT INTO client_social_handles(id,client_id,platform,handle,display_name,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      params: [uid(), clientId, h.platform, h.handle, h.display_name, h.note, now, now],
+    });
+  }
+  await tx(stmts);
 }
 
 /** Delete a client and every calendar (and their events) that belongs to it. */
 export async function deleteClient(id: string, name: string) {
   await tx([
     { sql: "DELETE FROM calendars WHERE client_id = ?", params: [id] },
+    { sql: "DELETE FROM client_social_handles WHERE client_id = ?", params: [id] },
     { sql: "DELETE FROM clients WHERE id = ?", params: [id] },
     activityStmt("client.deleted", `Deleted client "${name}" and its calendars`, { level: "warning" }),
   ]);
@@ -685,6 +730,23 @@ export async function seedGlobalObservances(): Promise<number> {
 }
 
 export const listGlobalEvents = () => all<EventRow>(`${EVENT_SELECT} WHERE c.is_global = 1 AND e.client_id IS NULL ORDER BY e.start_date, e.name`);
+
+/**
+ * A client's view of the Global Calendar: shared events in its scope plus events
+ * that belong to this client. Theme filtering happens in the UI so the same rows
+ * can be shown with an explicit "show all themes" switch.
+ */
+export async function listClientVisibleEvents(clientId: string): Promise<EventRow[]> {
+  const client = await getClient(clientId);
+  if (!client) return [];
+  return all<EventRow>(
+    `${EVENT_SELECT} WHERE c.is_global = 1 AND (
+       (e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
+       OR e.client_id = ?
+     ) ORDER BY e.start_date, e.name`,
+    [client.scope ?? "GLOBAL", clientId],
+  );
+}
 
 /** What a client calendar shows: global events in scope plus this client's own events. */
 export async function listClientCalendarEvents(calendarId: string): Promise<EventRow[]> {

@@ -13,6 +13,11 @@ export type ContentPlanRequest = {
   maxTopics: number;
   client_id?: string | null;
   client_name?: string | null;
+  /** Injected into the system prompt when the user opts in. */
+  client_description?: string | null;
+  use_client_profile?: boolean;
+  /** Platforms the client actually has handles for; AI answers must stay inside this list. */
+  platforms?: string[];
 };
 
 export type TopicProposal = {
@@ -61,12 +66,20 @@ export function normalizeFormat(v: unknown): string {
 
 export function buildTopicPrompt(req: ContentPlanRequest): { system: string; user: string } {
   const w = scopeWindow(req.scope);
+  const allowedPlatforms = req.platforms?.length ? req.platforms : PLATFORMS;
   const scopeText =
     req.scope.scope === "dates"
       ? `only on these dates: ${req.scope.dates.join(", ")}`
       : `between ${w.start} and ${w.end} inclusive`;
   const system = [
     "You are a social media content strategist.",
+    ...(req.use_client_profile && req.client_description
+      ? [
+          `Client profile: ${req.client_description}`,
+          "Treat the client profile as your primary system instruction: every topic and caption must fit this client's theme, audience and tone.",
+          req.theme ? `Client theme: ${req.theme}.` : "",
+        ]
+      : []),
     "Build a topic-wise content calendar: distinct post ideas, not a list of public holidays or observances.",
     "Each topic must be a clear content angle with a short brief and a ready-to-edit caption for the client.",
     "Vary the content pillars (for example Education, Awareness, Services, Trust/Behind the scenes, Patient stories, Engagement) and vary platforms and formats across the plan.",
@@ -76,7 +89,7 @@ export function buildTopicPrompt(req: ContentPlanRequest): { system: string; use
     "Reply with a single JSON object and nothing else. Do NOT wrap it in markdown code fences, and do NOT add any word before or after it.",
     "Your answer must start with { and end with }. Keep every string short so the JSON is always closed properly.",
     "brief under 180 characters, caption under 450 characters, at most 6 hashtags.",
-    `platform must be one of: ${PLATFORMS.join(" | ")}.`,
+    `platform must be one of: ${allowedPlatforms.join(" | ")}.`,
     `format must be one of: ${CONTENT_TYPES.join(" | ")}.`,
     'Exact shape: {"topics":[{"date":"YYYY-MM-DD","topic":"","pillar":"","platform":"instagram","format":"Static post","brief":"","caption":"","hashtags":["#tag"]}]}',
   ]
@@ -88,6 +101,7 @@ export function buildTopicPrompt(req: ContentPlanRequest): { system: string; use
     req.region ? `Country/region: ${req.region}.` : "",
     req.theme ? `Theme: ${req.theme}.` : "",
     req.client_name ? `Client: ${req.client_name}.` : "",
+    `Use only these platforms: ${allowedPlatforms.join(", ")}.`,
     `Plan topics ${scopeText}.`,
     `At most ${req.maxTopics} topics, sorted by date.`,
     "Return topics, briefs and draft captions. Do not return event records.",
@@ -102,7 +116,7 @@ type RawTopic = Partial<Record<"date" | "start_date" | "topic" | "name" | "title
 /** Strict validation of the AI's topic plan. Anything that fails gets a human-readable reason. */
 export function validateTopics(
   raw: unknown,
-  ctx: { scope: Scope; existing: { date: string; topic: string; platform?: string }[]; maxTopics: number },
+  ctx: { scope: Scope; existing: { date: string; topic: string; platform?: string }[]; maxTopics: number; platforms?: string[] | undefined },
 ): { accepted: TopicProposal[]; rejected: Rejected[] } {
   const list = Array.isArray(raw) ? raw : (raw as { topics?: unknown })?.topics;
   if (!Array.isArray(list)) return { accepted: [], rejected: [{ item: "AI answer", reason: "No topics list in the answer." }] };
@@ -122,6 +136,10 @@ export function validateTopics(
     if (allowed && !allowed.has(date)) { rejected.push({ item: label, reason: `Date ${date} was not one of the selected dates.` }); continue; }
     const platform = normalizePlatform(it?.platform);
     if (!platform) { rejected.push({ item: label, reason: "Missing platform." }); continue; }
+    if (ctx.platforms?.length && !ctx.platforms.includes(platform)) {
+      rejected.push({ item: label, reason: `Platform "${platform}" is not one of this client's platforms.` });
+      continue;
+    }
     const k = `${date}|${topic.toLowerCase()}|${platform}`;
     if (seen.has(k)) { rejected.push({ item: label, reason: "Duplicate of a topic already listed for this date and platform." }); continue; }
     if (accepted.length >= ctx.maxTopics) { rejected.push({ item: label, reason: `Over the limit of ${ctx.maxTopics} topics.` }); continue; }
@@ -150,6 +168,8 @@ export function validateTopics(
 export function mockTopicResponse(req: ContentPlanRequest): string {
   const w = scopeWindow(req.scope);
   const field = req.industry || "General";
+  const allowed = req.platforms?.length ? req.platforms : PLATFORMS;
+  const pickPlatform = (preferred: string[]) => preferred.find((p) => allowed.includes(p)) ?? allowed[0] ?? "instagram";
   const topics: { date: string; [k: string]: unknown }[] = [];
   const startY = Number(w.start.slice(0, 4));
   const endY = Number(w.end.slice(0, 4));
@@ -168,7 +188,7 @@ export function mockTopicResponse(req: ContentPlanRequest): string {
             date,
             topic,
             pillar,
-            platform: format === "Reel" ? "instagram" : format === "Story" ? "instagram" : "linkedin",
+            platform: pickPlatform(format === "Reel" || format === "Story" ? ["instagram"] : ["linkedin"]),
             format,
             brief: `A short ${pillar.toLowerCase()} angle for ${field}.`,
             caption: `${topic}: a practical, friendly caption the team can edit.`,

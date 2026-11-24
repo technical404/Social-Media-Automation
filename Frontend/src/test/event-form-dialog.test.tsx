@@ -47,7 +47,7 @@ const eventRow: repo.EventRow = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-function renderForm(event: repo.EventRow | null = null) {
+function renderForm(event: repo.EventRow | null = null, allowedPlatforms?: string[]) {
   const onSaved = vi.fn();
   render(
     <EventFormDialog
@@ -56,6 +56,7 @@ function renderForm(event: repo.EventRow | null = null) {
       calendarId="cal-1"
       event={event}
       defaultDate="2026-12-01"
+      allowedPlatforms={allowedPlatforms}
       onSaved={onSaved}
     />,
   );
@@ -130,5 +131,44 @@ describe("EventFormDialog", () => {
         content_format: "Custom format",
       }),
     );
+  });
+
+  it("offers only the client's platforms and filters content types by platform", async () => {
+    renderForm(null, ["instagram"]);
+
+    const contentTrigger = screen.getByRole("combobox", { name: "Content type" });
+    expect(contentTrigger).toBeDisabled();
+
+    openWithKeyboard(screen.getByRole("button", { name: "Platforms" }));
+    expect(await screen.findByRole("menuitemcheckbox", { name: "Instagram" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Facebook" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: /Meta/ })).toHaveAttribute("data-disabled");
+
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Instagram" }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    expect(screen.getByRole("combobox", { name: "Content type" })).not.toBeDisabled();
+    openWithKeyboard(screen.getByRole("combobox", { name: "Content type" }));
+    expect(await screen.findByRole("option", { name: "Reel" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Post" })).not.toBeInTheDocument();
+  });
+
+  it("selects Facebook and Instagram together through Meta", async () => {
+    const { onSaved } = renderForm();
+    fireEvent.change(screen.getByLabelText("Event name"), { target: { value: "Meta launch" } });
+
+    openWithKeyboard(screen.getByRole("button", { name: "Platforms" }));
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Meta/ }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    expect(screen.getByRole("button", { name: "Platforms" })).toHaveTextContent("Meta");
+    fireEvent.click(screen.getByRole("button", { name: "Add event" }));
+
+    await waitFor(() => expect(repo.createEvent).toHaveBeenCalledTimes(1));
+    expect(repo.createEvent).toHaveBeenCalledWith(
+      "cal-1",
+      expect.objectContaining({ platforms: expect.arrayContaining(["facebook", "instagram"]) }),
+    );
+    expect(onSaved).toHaveBeenCalled();
   });
 });

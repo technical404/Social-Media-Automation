@@ -13,7 +13,7 @@ import { todayIn, useRefresh } from "@/lib/hooks";
 import * as repo from "@/lib/repo";
 
 export const Route = createFileRoute("/_app/planner/$calendarId")({
-  validateSearch: (s) => z.object({ generate: z.boolean().optional(), date: z.string().optional() }).parse(s),
+  validateSearch: (s) => z.object({ generate: z.boolean().optional(), date: z.string().optional(), client: z.string().optional() }).parse(s),
   head: () => ({
     meta: [
       { title: "Calendar — SocialAI Studio Event Planner" },
@@ -71,7 +71,7 @@ function CalendarPage() {
 
       <EventWorkspace key={`${cal.id}-${wsKey}-${focus ?? ""}`} calendar={cal} events={events} focusDate={focus} />
 
-      <GenerateDialog open={genOpen} onOpenChange={setGenOpen} calendar={cal} selectedDates={[]} onProposed={(d) => { refresh(); if (d) setFocus(undefined); }} />
+      <GenerateDialog open={genOpen} onOpenChange={setGenOpen} calendar={cal} selectedDates={[]} initialClientId={search.client} onProposed={(d) => { refresh(); if (d) setFocus(undefined); }} />
       <EventFormDialog open={adding} onOpenChange={setAdding} calendarId={cal.id} event={null} defaultDate={todayIn(cal.timezone)} onSaved={refresh} />
     </div>
   );

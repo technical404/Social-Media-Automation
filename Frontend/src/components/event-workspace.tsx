@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CalendarCheck, CalendarDays, Clock, Download, FileSpreadsheet, LayoutGrid, MousePointerClick, Pencil, Plus, RotateCcw, Trash2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import { CategoryChip, StatusBadge } from "@/components/status-badge";
 import { EmptyState } from "@/components/app-shell";
 import { TIMEZONES, formatMDY, formatTime12, initialScheduleDate } from "@/lib/dates";
 import { CATEGORIES, effectiveTime, filterAndSort, toCSV, type ListFilters } from "@/lib/planner";
-import { PLATFORM_LABEL } from "@/lib/platforms";
+import { PLATFORM_LABEL, platformSummary } from "@/lib/platforms";
 import { downloadFile, todayIn, useAppSettings, useRefresh } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import * as repo from "@/lib/repo";
@@ -76,6 +77,14 @@ export function EventWorkspace({
 }) {
   const refresh = useRefresh();
   const { timezone: appTz } = useAppSettings();
+  const { data: clientHandles = [], isLoading: handlesLoading } = useQuery({
+    queryKey: ["client-social-handles", calendar?.client_id],
+    queryFn: () => repo.listClientSocialHandles(calendar!.client_id!),
+    enabled: !!calendar?.client_id,
+  });
+  const allowedPlatforms = calendar?.client_id && !handlesLoading
+    ? [...new Set(clientHandles.map((h) => h.platform))]
+    : undefined;
   const tz = calendar?.timezone ?? appTz;
   const today = todayIn(tz);
   // A client calendar references the Global Calendar: names/dates are shared, only times and
@@ -265,7 +274,7 @@ export function EventWorkspace({
           {e.event_code && <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground" title="Stable event code">{e.event_code}</span>}
           {!calendar && e.calendar_name && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">{e.calendar_name}</span>}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">Platforms: {platforms.length ? platforms.map((p) => PLATFORM_LABEL[p] ?? p).join(", ") : "none chosen yet"}</p>
+        <p className="mt-2 text-[11px] text-muted-foreground">Platforms: {platforms.length ? platformSummary(platforms) : "none chosen yet"}</p>
         <div className="mt-auto flex items-center gap-1 pt-3">
           {timeCell(e)}
           {reference && !e.client_id ? (
@@ -637,6 +646,7 @@ export function EventWorkspace({
           onOpenChange={(v) => !v && setEditing(null)}
           calendarId={editing && editing !== "new" ? editing.calendar_id : createTarget!}
           event={editing === "new" ? null : editing}
+          allowedPlatforms={allowedPlatforms}
           defaultDate={dayOpen ?? today}
           onSaved={refresh}
         />

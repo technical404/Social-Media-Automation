@@ -4,8 +4,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { ALL_CLIENTS } from "@/lib/client-view";
 import * as repo from "@/lib/repo";
 
 export const Route = createFileRoute("/_app/posts")({
@@ -13,18 +15,24 @@ export const Route = createFileRoute("/_app/posts")({
   component: PostsPage,
 });
 
-function PostsPage() {
+export function PostsPage() {
   const qc = useQueryClient();
   const { data: posts = [] } = useQuery({ queryKey: ["posts"], queryFn: () => repo.listPosts() });
   const { data: clients = [] } = useQuery({ queryKey: ["clients"], queryFn: repo.listClients });
+  const [clientFilter, setClientFilter] = useState(ALL_CLIENTS);
   const [body, setBody] = useState("");
   const [platform, setPlatform] = useState("");
+  const selectedClient = clients.find((c) => c.id === clientFilter) ?? null;
+  const visiblePosts = selectedClient ? posts.filter((p) => p.client_id === selectedClient.id) : posts;
   const refresh = () => qc.invalidateQueries({ queryKey: ["posts"] });
   const create = async (status: repo.PostRow["status"] extends never ? string : string) => {
     if (!body.trim()) return toast.error("Write the post first.");
-    await repo.savePost({ body, platform, status });
+    if (!selectedClient && clients.length) {
+      return toast.error("Choose a client first so the post appears in the right client view.");
+    }
+    await repo.savePost({ body, platform, status, client_id: selectedClient?.id ?? null });
     setBody("");
-    toast.success(`Saved as ${status}`);
+    toast.success(`Saved as ${status}${selectedClient ? ` for ${selectedClient.name}` : ""}`);
     refresh();
   };
   const setStatus = async (p: repo.PostRow, status: string) => {
@@ -33,18 +41,49 @@ function PostsPage() {
   };
   return (
     <div className="space-y-6">
-      <PageHeader title="Posts & approvals" subtitle="Draft → pending → approved → scheduled. Publishing needs official OAuth." />
+      <PageHeader
+        title="Posts & approvals"
+        subtitle="Draft → pending → approved → scheduled. Publishing needs official OAuth."
+        actions={
+          <Select value={clientFilter} onValueChange={setClientFilter}>
+            <SelectTrigger className="w-52" aria-label="Client view">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_CLIENTS}>All clients</SelectItem>
+              {clients.map((client) => (
+                <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
+      {selectedClient && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border bg-card px-4 py-3 text-sm">
+          <p>
+            Showing <strong>{selectedClient.name}</strong> · {visiblePosts.length} post{visiblePosts.length === 1 ? "" : "s"}
+          </p>
+          <span className="text-muted-foreground">New posts are saved to this client.</span>
+        </div>
+      )}
       <section className="space-y-3 rounded-2xl border bg-card p-5 shadow-soft">
         <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} placeholder="Post body" />
         <Input value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="Platform (e.g. LinkedIn)" className="max-w-xs" />
+        {!selectedClient && clients.length > 0 && (
+          <p className="text-xs text-muted-foreground">Choose a client above to assign new posts to that client.</p>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => create("draft")}>Save draft</Button>
           <Button variant="outline" onClick={() => create("pending_approval")}>Submit for approval</Button>
         </div>
       </section>
       <ul className="space-y-3">
-        {posts.length === 0 && <p className="text-sm text-muted-foreground">No posts yet.</p>}
-        {posts.map((p) => {
+        {visiblePosts.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            {selectedClient ? `No posts for ${selectedClient.name} yet.` : "No posts yet."}
+          </p>
+        )}
+        {visiblePosts.map((p) => {
           const tags = (() => {
             try {
               const v = JSON.parse(p.hashtags ?? "[]") as unknown;

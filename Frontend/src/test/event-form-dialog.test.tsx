@@ -97,6 +97,9 @@ describe("EventFormDialog", () => {
     openWithKeyboard(contentTrigger);
     fireEvent.click(await screen.findByRole("option", { name: "Reel" }));
 
+    openWithKeyboard(screen.getByRole("combobox", { name: "Client category" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Healthcare" }));
+
     fireEvent.click(screen.getByRole("button", { name: "Add event" }));
 
     await waitFor(() => expect(repo.createEvent).toHaveBeenCalledTimes(1));
@@ -106,6 +109,7 @@ describe("EventFormDialog", () => {
         name: "World Cancer Day",
         platforms: ["instagram"],
         content_format: "Reel",
+        industry: "Healthcare",
         source_url: "",
         verification_status: "unverified",
       }),

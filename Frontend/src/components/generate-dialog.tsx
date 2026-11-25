@@ -421,8 +421,8 @@ export function GenerateDialog({
           )}
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <Label htmlFor="g-ind">Industry</Label>
-              <IndustrySelect id="g-ind" value={industry} onChange={setIndustry} />
+              <Label htmlFor="g-ind">Client category</Label>
+              <IndustrySelect id="g-ind" label="Client category" noneLabel="Master only (no client)" value={industry} onChange={setIndustry} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="g-reg">Country / region</Label>

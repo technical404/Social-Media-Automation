@@ -270,6 +270,7 @@ export function EventWorkspace({
         <div className="mt-2 flex flex-wrap gap-1.5">
           <StatusBadge status={e.approval_status} />
           <StatusBadge status={e.publish_status} />
+          {e.industry && <span className="rounded-full bg-highlight/15 px-2 py-0.5 text-[11px] font-medium">{e.industry}</span>}
           {e.event_kind === "official_observance" && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">Official</span>}
           {e.event_code && <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground" title="Stable event code">{e.event_code}</span>}
           {!calendar && e.calendar_name && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">{e.calendar_name}</span>}
@@ -648,6 +649,7 @@ export function EventWorkspace({
           event={editing === "new" ? null : editing}
           allowedPlatforms={allowedPlatforms}
           defaultDate={dayOpen ?? today}
+          defaultIndustry={editing && editing !== "new" ? undefined : calendar?.industry}
           onSaved={refresh}
         />
       )}

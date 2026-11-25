@@ -40,7 +40,7 @@ function AllCalendar() {
 
   const selectedClient = clients.find((c) => c.id === clientFilter) ?? null;
   const themes = clientThemes(selectedClient, clientCalendars);
-  const visibleEvents = selectedClient ? filterEventsForClient(clientEvents, selectedClient.id, themes, themeOnly) : events;
+  const visibleEvents = selectedClient ? filterEventsForClient(clientEvents, selectedClient, themes, themeOnly) : events;
   const workspaceCalendar = selectedClient ? clientCalendars[0] ?? cal : cal;
 
   return (
@@ -48,7 +48,7 @@ function AllCalendar() {
       <PageHeader
         title={selectedClient ? `${selectedClient.name} calendar` : "Event Calendar"}
         subtitle={selectedClient
-          ? "This client's Global Calendar view: shared events in scope plus its own events, optionally narrowed to its theme."
+          ? "This client's Global Calendar view: its own events plus shared events in its category and scope."
           : "The Global Calendar in one place. Clients follow it and only pick their own times."}
         actions={
           <Select value={clientFilter} onValueChange={setClientFilter}>
@@ -64,8 +64,12 @@ function AllCalendar() {
         <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border bg-card px-4 py-3 text-sm">
           <p>
             Showing <strong>{selectedClient.name}</strong>
+            {selectedClient.industry ? <> · category <strong>{selectedClient.industry}</strong></> : null}
             {themes.length ? <> · theme <strong>{themes.join(", ")}</strong></> : null}
           </p>
+          {!selectedClient.industry && (
+            <span className="text-xs text-muted-foreground">Set the client industry/category to see matching shared events.</span>
+          )}
           {themes.length > 0 && (
             <label htmlFor="calendar-theme-only" className="flex items-center gap-2 text-muted-foreground">
               <Checkbox id="calendar-theme-only" checked={themeOnly} onCheckedChange={(v) => setThemeOnly(v === true)} />

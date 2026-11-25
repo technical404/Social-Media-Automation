@@ -60,10 +60,15 @@ describe("client-owned AI events", () => {
 
   it("shows a client-owned event even when it is stored on the client calendar", async () => {
     h.db!.run("INSERT INTO events(id, calendar_id, client_id, name, start_date, end_date) VALUES ('e1', 'cc1', 'cl1', 'Client event', '2026-12-01', '2026-12-01')");
-    h.db!.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, scope) VALUES ('e2', 'g1', 'Shared event', '2026-12-02', '2026-12-02', 'GLOBAL')");
+    h.db!.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, scope, industry) VALUES ('e2', 'g1', 'Shared event', '2026-12-02', '2026-12-02', 'GLOBAL', 'Beauty')");
+    h.db!.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, scope, industry) VALUES ('e3', 'g1', 'Other category', '2026-12-03', '2026-12-03', 'GLOBAL', 'Finance & banking')");
+    h.db!.run("INSERT INTO events(id, calendar_id, name, start_date, end_date, scope) VALUES ('e4', 'g1', 'Uncategorised', '2026-12-04', '2026-12-04', 'GLOBAL')");
 
     const rows = await repo.listClientCalendarEvents("cc1");
     expect(rows.map((r) => r.id).sort()).toEqual(["e1", "e2"]);
+
+    const globalView = await repo.listClientVisibleEvents("cl1");
+    expect(globalView.map((r) => r.id).sort()).toEqual(["e1", "e2"]);
   });
 
   it("approves AI events into the Global Calendar when started from a client calendar", async () => {

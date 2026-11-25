@@ -268,7 +268,7 @@ export const searchEvents = (q: string) =>
 
 export type EventInput = Pick<
   EventRow,
-  "name" | "short_description" | "detailed_description" | "category" | "start_date" | "end_date" | "importance" | "event_kind" | "source_url" | "verification_status" | "campaign_topic" | "content_format"
+  "name" | "short_description" | "detailed_description" | "category" | "industry" | "start_date" | "end_date" | "importance" | "event_kind" | "source_url" | "verification_status" | "campaign_topic" | "content_format"
 > & { time_override: string | null; hashtags: string[]; platforms: string[]; scope?: string };
 
 export async function createEvent(calendarId: string, ev: EventInput) {
@@ -276,9 +276,9 @@ export async function createEvent(calendarId: string, ev: EventInput) {
   const scope = ev.scope ?? "GLOBAL";
   await tx([
     {
-      sql: `INSERT INTO events(id, calendar_id, name, short_description, detailed_description, category, start_date, end_date, importance, event_kind, source_url, verification_status, campaign_topic, content_format, hashtags, platforms, time_override, scope, event_code, approval_status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_review')`,
-      params: [id, calendarId, ev.name, ev.short_description, ev.detailed_description, ev.category, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, ev.content_format, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, scope, eventCode(scope, ev.name, ev.start_date)],
+      sql: `INSERT INTO events(id, calendar_id, name, short_description, detailed_description, category, industry, start_date, end_date, importance, event_kind, source_url, verification_status, campaign_topic, content_format, hashtags, platforms, time_override, scope, event_code, approval_status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending_review')`,
+      params: [id, calendarId, ev.name, ev.short_description, ev.detailed_description, ev.category, ev.industry, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, ev.content_format, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, scope, eventCode(scope, ev.name, ev.start_date)],
     },
     activityStmt("event.created", `Added "${ev.name}" on ${ev.start_date}`, { entity_type: "event", entity_id: id }),
   ]);
@@ -289,9 +289,9 @@ export async function createEvent(calendarId: string, ev: EventInput) {
 export async function updateEvent(id: string, ev: EventInput) {
   await tx([
     {
-      sql: `UPDATE events SET name=?, short_description=?, detailed_description=?, category=?, start_date=?, end_date=?, importance=?, event_kind=?, source_url=?, verification_status=?, campaign_topic=?, content_format=?, hashtags=?, platforms=?, time_override=?,
+      sql: `UPDATE events SET name=?, short_description=?, detailed_description=?, category=?, industry=?, start_date=?, end_date=?, importance=?, event_kind=?, source_url=?, verification_status=?, campaign_topic=?, content_format=?, hashtags=?, platforms=?, time_override=?,
             approval_status='pending_review', approved_at=NULL, publish_status = CASE WHEN publish_status = 'scheduled' THEN 'not_scheduled' ELSE publish_status END, updated_at=? WHERE id=?`,
-      params: [ev.name, ev.short_description, ev.detailed_description, ev.category, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, ev.content_format, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, nowIso(), id],
+      params: [ev.name, ev.short_description, ev.detailed_description, ev.category, ev.industry, ev.start_date, ev.end_date, ev.importance, ev.event_kind, ev.source_url, ev.verification_status, ev.campaign_topic, ev.content_format, JSON.stringify(ev.hashtags), JSON.stringify(ev.platforms), ev.time_override, nowIso(), id],
     },
     activityStmt("event.edited", `Edited "${ev.name}" — needs review again`, { entity_type: "event", entity_id: id, level: "warning" }),
   ]);
@@ -736,30 +736,38 @@ export async function seedGlobalObservances(): Promise<number> {
 export const listGlobalEvents = () => all<EventRow>(`${EVENT_SELECT} WHERE c.is_global = 1 AND e.client_id IS NULL ORDER BY e.start_date, e.name`);
 
 /**
- * A client's view of the Global Calendar: shared events in its scope plus events
- * that belong to this client. Theme filtering happens in the UI so the same rows
- * can be shown with an explicit "show all themes" switch.
+ * A client's view of the Global Calendar: its own events plus shared events in its scope
+ * whose category matches the client's industry. Uncategorised shared events stay in the
+ * master view until they are given a category.
  */
 export async function listClientVisibleEvents(clientId: string): Promise<EventRow[]> {
   const client = await getClient(clientId);
   if (!client) return [];
   return all<EventRow>(
-    `${EVENT_SELECT} WHERE (c.is_global = 1 AND e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
-       OR e.client_id = ?
+    `${EVENT_SELECT} WHERE (
+       c.is_global = 1 AND e.client_id IS NULL
+       AND (e.scope = 'GLOBAL' OR e.scope = ?)
+       AND ? <> '' AND trim(lower(e.industry)) = trim(lower(?))
+     ) OR e.client_id = ?
      ORDER BY e.start_date, e.name`,
-    [client.scope ?? "GLOBAL", clientId],
+    [client.scope ?? "GLOBAL", client.industry, client.industry, clientId],
   );
 }
 
-/** What a client calendar shows: global events in scope plus this client's own events. */
+/** What a client calendar shows: category-matched global events plus this client's own events. */
 export async function listClientCalendarEvents(calendarId: string): Promise<EventRow[]> {
   const cal = await getCalendar(calendarId);
   if (!cal) return [];
+  const client = cal.client_id ? await getClient(cal.client_id) : null;
+  const category = (client?.industry || cal.industry || "").trim();
   const rows = await all<EventRow>(
-    `${EVENT_SELECT} WHERE (c.is_global = 1 AND e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
-       OR e.client_id = ?
+    `${EVENT_SELECT} WHERE (
+       c.is_global = 1 AND e.client_id IS NULL
+       AND (e.scope = 'GLOBAL' OR e.scope = ?)
+       AND ? <> '' AND trim(lower(e.industry)) = trim(lower(?))
+     ) OR e.client_id = ?
      ORDER BY e.start_date, e.name`,
-    [cal.scope ?? "GLOBAL", cal.client_id],
+    [cal.scope ?? "GLOBAL", category, category, cal.client_id],
   );
   const states = await all<StateRow>("SELECT event_id, time_override, approval_status, publish_status, category, hidden FROM client_event_state WHERE calendar_id = ?", [calendarId]);
   const byId = new Map(states.map((s) => [s.event_id, s]));

@@ -29,8 +29,23 @@ export function eventMatchesTheme(
   });
 }
 
-/** Client-owned events always show; shared events must match the theme when filtering. */
-export function filterEventsForClient(events: EventRow[], clientId: string | null, themes: string[], themeOnly: boolean): EventRow[] {
-  if (!clientId || !themeOnly || !themes.length) return events;
-  return events.filter((e) => e.client_id === clientId || eventMatchesTheme(e, themes));
+/** Shared events are routed to a client by matching the client's industry/category. */
+export function eventMatchesClientCategory(event: Pick<EventRow, "industry">, category: string): boolean {
+  const wanted = category.trim().toLowerCase();
+  return wanted.length > 0 && event.industry.trim().toLowerCase() === wanted;
+}
+
+/** Client-owned events always show; shared events must match the client category and, optionally, its theme. */
+export function filterEventsForClient(
+  events: EventRow[],
+  client: Pick<Client, "id" | "industry"> | null,
+  themes: string[],
+  themeOnly: boolean,
+): EventRow[] {
+  if (!client) return events;
+  return events.filter((event) => {
+    if (event.client_id === client.id) return true;
+    if (!eventMatchesClientCategory(event, client.industry)) return false;
+    return !themeOnly || !themes.length || eventMatchesTheme(event, themes);
+  });
 }

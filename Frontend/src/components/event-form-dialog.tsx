@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { IndustrySelect } from "@/components/industry-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -26,11 +27,12 @@ type Form = repo.EventInput;
 
 // Source fields are no longer edited in this form, but they stay in state so any
 // values that came from AI or a spreadsheet survive an edit.
-const blank = (date: string): Form => ({
+const blank = (date: string, industry = ""): Form => ({
   name: "",
   short_description: "",
   detailed_description: "",
   category: "Other",
+  industry,
   start_date: date,
   end_date: date,
   importance: "medium",
@@ -155,6 +157,7 @@ export function EventFormDialog({
   calendarId,
   event,
   defaultDate,
+  defaultIndustry = "",
   allowedPlatforms,
   onSaved,
 }: {
@@ -163,6 +166,8 @@ export function EventFormDialog({
   calendarId: string;
   event: repo.EventRow | null;
   defaultDate: string;
+  /** Category used for a new shared event; client views only show matching categories. */
+  defaultIndustry?: string | undefined;
   /** Platforms the client actually has handles for; omitted means every platform. */
   allowedPlatforms?: string[] | undefined;
   onSaved: () => void;
@@ -179,6 +184,7 @@ export function EventFormDialog({
         short_description: event.short_description,
         detailed_description: event.detailed_description,
         category: event.category,
+        industry: event.industry,
         start_date: event.start_date,
         end_date: event.end_date,
         importance: event.importance,
@@ -193,10 +199,10 @@ export function EventFormDialog({
       });
       setTags(parseList(event.hashtags).join(" "));
     } else {
-      setF(blank(defaultDate));
+      setF(blank(defaultDate, defaultIndustry));
       setTags("");
     }
-  }, [open, event, defaultDate]);
+  }, [open, event, defaultDate, defaultIndustry]);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
   const setPlatforms = (platforms: string[]) => setF((x) => {
@@ -285,6 +291,10 @@ export function EventFormDialog({
                 <SelectTrigger id="ev-cat" aria-label="Category"><SelectValue /></SelectTrigger>
                 <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <FieldLabel label="Client category" htmlFor="ev-industry" hint="Shared events only appear in client views with this same category. Leave it unset to keep the event in the master calendar only." />
+              <IndustrySelect id="ev-industry" label="Client category" noneLabel="Master only (no client)" value={f.industry} onChange={(v) => set("industry", v)} />
             </div>
             <div className="space-y-1.5">
               <FieldLabel label="Type" htmlFor="ev-kind" hint="Marks the event as an official observance, an AI suggestion, or your own event." />

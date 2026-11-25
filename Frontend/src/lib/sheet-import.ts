@@ -469,6 +469,7 @@ export function toEventInput(draft: ImportDraft, scope = "GLOBAL") {
     short_description: draft.short_description.trim(),
     detailed_description: draft.detailed_description.trim(),
     category: draft.category,
+    industry: "",
     start_date: draft.start_date,
     end_date: end,
     importance: draft.importance,

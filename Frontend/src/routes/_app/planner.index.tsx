@@ -61,7 +61,7 @@ function PlannerIndex() {
   const themes = clientThemes(selectedClient, clientCalendars);
   const allowedPlatforms = selectedClient && !handlesLoading ? [...new Set(clientHandles.map((h) => h.platform))] : undefined;
   const visibleEvents = selectedClient
-    ? filterEventsForClient(clientEvents, selectedClient.id, themes, themeOnly)
+    ? filterEventsForClient(clientEvents, selectedClient, themes, themeOnly)
     : events;
   const activeCalendarId = selectedClient ? clientCalendars[0]?.id ?? gcal?.id : gcal?.id;
   const upcoming = visibleEvents.filter((e) => e.start_date >= today).slice(0, 8);
@@ -85,7 +85,7 @@ function PlannerIndex() {
     <div className="space-y-5">
       <PageHeader
         title="Global Calendar"
-        subtitle="The one master calendar. Every client calendar follows it — names and dates live here once, clients only choose their own times and schedule."
+        subtitle="The one master calendar. Tag each event with a client category; a client view only shows its own category and scope."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Select value={clientFilter} onValueChange={setClientFilter}>
@@ -133,8 +133,12 @@ function PlannerIndex() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border bg-card px-4 py-3 text-sm">
           <p>
             Showing <strong>{selectedClient.name}</strong> · {SCOPE_LABEL[selectedClient.scope] ?? "Worldwide"} events
+            {selectedClient.industry ? <> · category <strong>{selectedClient.industry}</strong></> : null}
             {themes.length ? <> · theme <strong>{themes.join(", ")}</strong></> : null}
           </p>
+          {!selectedClient.industry && (
+            <span className="text-xs text-muted-foreground">Set the client industry/category to see matching shared events.</span>
+          )}
           {themes.length > 0 && (
             <label htmlFor="theme-only" className="flex items-center gap-2 text-muted-foreground">
               <Checkbox id="theme-only" checked={themeOnly} onCheckedChange={(v) => setThemeOnly(v === true)} />
@@ -215,6 +219,7 @@ function PlannerIndex() {
         calendarId={gcal.id}
         event={editing}
         defaultDate={today}
+        defaultIndustry={selectedClient?.industry}
         allowedPlatforms={allowedPlatforms}
         onSaved={refresh}
       />

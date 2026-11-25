@@ -8,18 +8,22 @@ export function IndustrySelect({
   id,
   value,
   onChange,
+  label = "Industry",
+  noneLabel = "Not set",
 }: {
   id?: string;
   value: string;
   onChange: (value: string) => void;
+  label?: string;
+  noneLabel?: string;
 }) {
   return (
     <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? "" : v)}>
-      <SelectTrigger id={id} aria-label="Industry">
+      <SelectTrigger id={id} aria-label={label}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NONE}>Not set</SelectItem>
+        <SelectItem value={NONE}>{noneLabel}</SelectItem>
         {withCurrent(INDUSTRIES, value).map((industry) => (
           <SelectItem key={industry} value={industry}>
             {industry}

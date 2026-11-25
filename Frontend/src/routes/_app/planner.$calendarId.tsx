@@ -30,7 +30,17 @@ function CalendarPage() {
   const search = Route.useSearch();
   const refresh = useRefresh();
   const { data: cal, isLoading } = useQuery({ queryKey: ["calendar", calendarId], queryFn: () => repo.getCalendar(calendarId) });
-  const { data: events } = useQuery({ queryKey: ["events", calendarId], queryFn: () => repo.listEvents(calendarId) });
+  const { data: events } = useQuery({
+    queryKey: ["events", calendarId],
+    // Client calendars are views over the Global Calendar; only standalone calendars own rows.
+    queryFn: () => (cal?.client_id ? repo.listClientCalendarEvents(calendarId) : repo.listEvents(calendarId)),
+    enabled: !!cal,
+  });
+  const { data: gcal } = useQuery({
+    queryKey: ["global-calendar"],
+    queryFn: repo.ensureGlobalCalendar,
+    enabled: !!cal && !cal.is_global && !!cal.client_id,
+  });
   const { data: run } = useQuery({ queryKey: ["run", calendarId], queryFn: () => repo.getPreviewRun(calendarId) });
   const { data: topicRun } = useQuery({ queryKey: ["run-topics", calendarId], queryFn: () => repo.getPreviewRun(calendarId, "topics") });
   const [genOpen, setGenOpen] = useState(false);
@@ -52,6 +62,8 @@ function CalendarPage() {
   const topicFirst = Boolean(topicRun && (!run || topicRun.created_at > run.created_at));
   const eventReview = run && <ProposalReview key={run.id} run={run} calendar={cal} onDone={async () => { await refresh(); setWsKey((k) => k + 1); }} />;
   const topicReview = topicRun && <TopicReview key={topicRun.id} run={topicRun} calendar={cal} onDone={async () => { await refresh(); }} />;
+  // Client calendars are filtered views; new events still go into the master calendar.
+  const eventCalendarId = cal.client_id ? gcal?.id ?? null : cal.id;
 
   return (
     <div className="space-y-5">
@@ -62,17 +74,17 @@ function CalendarPage() {
           <p className="mt-1 text-muted-foreground">{[cal.industry || "General", cal.region, cal.theme].filter(Boolean).join(" · ")} · {events.length} event{events.length === 1 ? "" : "s"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setAdding(true)}><Plus /> Add event</Button>
+          <Button variant="outline" onClick={() => setAdding(true)} disabled={!eventCalendarId}><Plus /> Add event</Button>
           <Button variant="highlight" onClick={() => setGenOpen(true)}><Wand2 /> Ask AI</Button>
         </div>
       </div>
 
       {topicFirst ? <>{topicReview}{eventReview}</> : <>{eventReview}{topicReview}</>}
 
-      <EventWorkspace key={`${cal.id}-${wsKey}-${focus ?? ""}`} calendar={cal} events={events} focusDate={focus} />
+      <EventWorkspace key={`${cal.id}-${wsKey}-${focus ?? ""}`} calendar={cal} events={events} focusDate={focus} globalCalendarId={gcal?.id} />
 
       <GenerateDialog open={genOpen} onOpenChange={setGenOpen} calendar={cal} selectedDates={[]} initialClientId={search.client} onProposed={(d) => { refresh(); if (d) setFocus(undefined); }} />
-      <EventFormDialog open={adding} onOpenChange={setAdding} calendarId={cal.id} event={null} defaultDate={todayIn(cal.timezone)} onSaved={refresh} />
+      <EventFormDialog open={adding} onOpenChange={setAdding} calendarId={eventCalendarId ?? cal.id} event={null} defaultDate={todayIn(cal.timezone)} onSaved={refresh} />
     </div>
   );
 }

@@ -455,6 +455,10 @@ export async function commitRun(run_: GenerationRun, cal: Calendar, proposals: P
   const client = targetClientId ? await getClient(targetClientId) : null;
   if (targetClientId && !client) throw new Error("The selected client no longer exists. Ask the AI again.");
   const request = JSON.parse(run_.request) as PlanRequest;
+  // Client calendars only reference the Global Calendar, so a client-owned event must live in
+  // the master calendar too. Otherwise approving from a client calendar stores the event in a
+  // place no client view reads.
+  const target = client && !cal.is_global ? (await getGlobalCalendar()) ?? cal : cal;
   const scope = client ? client.scope || "GLOBAL" : cal.scope ?? "GLOBAL";
   const industry = client ? client.industry || request.industry : cal.industry;
   const region = client ? request.region : cal.region;
@@ -467,14 +471,14 @@ export async function commitRun(run_: GenerationRun, cal: Calendar, proposals: P
             image_prompt, video_prompt, scope, event_code, approval_status, approved_at
           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     params: [
-      uid(), cal.id, targetClientId, p.name, p.short_description, p.detailed_description,
+      uid(), target.id, targetClientId, p.name, p.short_description, p.detailed_description,
       p.category, industry, region, p.start_date, p.end_date, p.importance, p.event_kind,
       p.source_url, p.source_url ? "source_provided" : "unverified", p.campaign_topic, p.content_format, JSON.stringify(p.hashtags),
       p.image_prompt, p.video_prompt, scope, client ? null : eventCode(scope, p.name, p.start_date), "approved", now,
     ],
   }));
   stmts.push({ sql: "UPDATE event_generation_runs SET status = 'committed', committed_at = ?, proposals = ? WHERE id = ?", params: [now, JSON.stringify(proposals), run_.id] });
-  stmts.push(activityStmt("ai.events_committed", `Approved and saved ${picked.length} AI event(s) to "${cal.name}"${client ? ` for ${client.name}` : ""}`, { entity_type: "calendar", entity_id: cal.id, level: "success" }));
+  stmts.push(activityStmt("ai.events_committed", `Approved and saved ${picked.length} AI event(s) to "${target.name}"${client ? ` for ${client.name}` : ""}`, { entity_type: "calendar", entity_id: target.id, level: "success" }));
   await tx(stmts);
   return picked.length;
 }
@@ -740,10 +744,9 @@ export async function listClientVisibleEvents(clientId: string): Promise<EventRo
   const client = await getClient(clientId);
   if (!client) return [];
   return all<EventRow>(
-    `${EVENT_SELECT} WHERE c.is_global = 1 AND (
-       (e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
+    `${EVENT_SELECT} WHERE (c.is_global = 1 AND e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
        OR e.client_id = ?
-     ) ORDER BY e.start_date, e.name`,
+     ORDER BY e.start_date, e.name`,
     [client.scope ?? "GLOBAL", clientId],
   );
 }
@@ -753,10 +756,9 @@ export async function listClientCalendarEvents(calendarId: string): Promise<Even
   const cal = await getCalendar(calendarId);
   if (!cal) return [];
   const rows = await all<EventRow>(
-    `${EVENT_SELECT} WHERE c.is_global = 1 AND (
-       (e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
+    `${EVENT_SELECT} WHERE (c.is_global = 1 AND e.client_id IS NULL AND (e.scope = 'GLOBAL' OR e.scope = ?))
        OR e.client_id = ?
-     ) ORDER BY e.start_date, e.name`,
+     ORDER BY e.start_date, e.name`,
     [cal.scope ?? "GLOBAL", cal.client_id],
   );
   const states = await all<StateRow>("SELECT event_id, time_override, approval_status, publish_status, category, hidden FROM client_event_state WHERE calendar_id = ?", [calendarId]);

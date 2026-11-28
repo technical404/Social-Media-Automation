@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, CalendarDays, Loader2, Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app-shell";
+import { ClientOAuth } from "@/components/client-oauth";
 import { ClientPosts } from "@/components/client-posts";
 import { EventWorkspace } from "@/components/event-workspace";
 import { IndustrySelect } from "@/components/industry-select";
@@ -77,6 +78,8 @@ function ClientSchedulerPage() {
       </div>
 
       <ClientPosts clientId={clientId} />
+
+      <ClientOAuth client={client} />
 
       {(calendars ?? []).length === 0 ? (
         <EmptyState icon={CalendarDays} title="No calendars for this client" body="Create the client's first calendar, then add events and set posting times." action={<Button variant="highlight" onClick={openNew}><Plus /> New calendar</Button>} />

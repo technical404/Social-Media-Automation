@@ -1,5 +1,6 @@
 // Data access for the local SQLite database (same SQL on both engines).
-import { all, run, tx, uid, nowIso, type Stmt } from "./db";
+import { all, run, tx, uid, nowIso, getDb, type Stmt } from "./db";
+import { backendFetch } from "./db/python";
 import type { Proposal, PlanRequest } from "./planner";
 import type { ContentPlanRequest, TopicProposal } from "./content-planner";
 import { builtinEventsFor, eventCode } from "./global-calendar";
@@ -571,6 +572,8 @@ const USER_TABLES = [
   "event_generation_runs",
   "client_event_state",
   "client_social_handles",
+  "social_oauth_apps",
+  "social_connections",
   "calendars",
   "clients",
   "ai_request_logs",
@@ -590,6 +593,40 @@ export type ClientSocialHandle = {
   handle: string;
   display_name: string;
   note: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Non-secret OAuth app metadata. The client secret lives only in the encrypted store. */
+export type SocialOAuthApp = {
+  id: string;
+  platform: string;
+  client_id: string | null;
+  app_client_id: string;
+  app_client_secret_hint: string | null;
+  has_client_secret: number;
+  redirect_uri: string;
+  scopes: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A per-client, per-platform OAuth connection. Tokens never live in this row. */
+export type SocialConnection = {
+  id: string;
+  client_id: string;
+  platform: string;
+  handle: string;
+  display_name: string;
+  external_id: string | null;
+  status: string;
+  scopes: string;
+  token_type: string;
+  expires_at: string | null;
+  connected_at: string | null;
+  last_refreshed_at: string | null;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -641,14 +678,59 @@ export async function replaceClientSocialHandles(clientId: string, handles: { pl
   await tx(stmts);
 }
 
-/** Delete a client and every calendar (and their events) that belongs to it. */
+/**
+ * Delete a client and every calendar (and their events) that belongs to it.
+ * Encrypted OAuth tokens are removed first so they cannot be orphaned.
+ */
 export async function deleteClient(id: string, name: string) {
+  await cleanupClientOAuthTokens(id);
   await tx([
     { sql: "DELETE FROM calendars WHERE client_id = ?", params: [id] },
     { sql: "DELETE FROM client_social_handles WHERE client_id = ?", params: [id] },
+    { sql: "DELETE FROM social_connections WHERE client_id = ?", params: [id] },
+    { sql: "DELETE FROM social_oauth_apps WHERE client_id = ?", params: [id] },
     { sql: "DELETE FROM clients WHERE id = ?", params: [id] },
     activityStmt("client.deleted", `Deleted client "${name}" and its calendars`, { level: "warning" }),
   ]);
+}
+
+async function cleanupClientOAuthTokens(clientId: string) {
+  try {
+    const db = await getDb();
+    if (db.mode !== "python") return;
+    await backendFetch("/api/oauth/cleanup-client", {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId }),
+    });
+  } catch {
+    // Best effort: removing the client still removes every metadata row.
+  }
+}
+
+// ---------- social OAuth (per client, per platform) ----------
+
+export const listSocialOAuthApps = () =>
+  all<SocialOAuthApp>("SELECT * FROM social_oauth_apps ORDER BY platform, ifnull(client_id, '')");
+
+export const listSocialConnections = () =>
+  all<SocialConnection>("SELECT * FROM social_connections ORDER BY client_id, platform");
+
+export const listClientSocialConnections = (clientId: string) =>
+  all<SocialConnection>("SELECT * FROM social_connections WHERE client_id = ? ORDER BY platform", [clientId]);
+
+export const getSocialConnection = (clientId: string, platform: string) =>
+  all<SocialConnection>("SELECT * FROM social_connections WHERE client_id = ? AND platform = ? LIMIT 1", [clientId, platform]).then((rows) => rows[0] ?? null);
+
+/** Create the metadata row for a client + platform pair, or return the existing one. */
+export async function ensureSocialConnection(clientId: string, platform: string): Promise<SocialConnection> {
+  const existing = await getSocialConnection(clientId, platform);
+  if (existing) return existing;
+  const id = uid();
+  const now = nowIso();
+  await run("INSERT INTO social_connections(id,client_id,platform,created_at,updated_at) VALUES (?,?,?,?,?)", [id, clientId, platform, now, now]);
+  const created = (await all<SocialConnection>("SELECT * FROM social_connections WHERE id = ?", [id]))[0];
+  if (!created) throw new Error("Could not create the social connection record.");
+  return created;
 }
 
 /** Create a calendar owned by a client. It references the Global Calendar (no copies). */

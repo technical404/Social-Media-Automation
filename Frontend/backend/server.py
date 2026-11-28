@@ -7,11 +7,12 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse, urlsplit
 
-from . import VERSION, ai, config, db, secrets_store
+from . import VERSION, ai, config, db, oauth, secrets_store
 
 log = logging.getLogger("socialai.backend")
 TOKEN = pysecrets.token_urlsafe(32)
@@ -25,6 +26,15 @@ PRAGMA_SQL = re.compile(r"^\s*PRAGMA\b", re.I)
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _netloc_host(url: str) -> str:
+    netloc = urlsplit(url).netloc.lower()
+    if netloc.endswith(":443"):
+        return netloc[:-4]
+    if netloc.endswith(":80"):
+        return netloc[:-3]
+    return netloc
 
 
 def check_sql(sql: str) -> None:
@@ -44,14 +54,44 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # route to our logger, never log bodies
         log.info("%s %s", self.address_string(), fmt % args)
 
+    def log_request(self, code="-", size="-"):
+        # Never log query strings: the OAuth callback carries a one-time code.
+        self.log_message(
+            '"%s %s %s" %s %s',
+            self.command,
+            self.path.split("?")[0],
+            self.request_version,
+            code,
+            size,
+        )
+
     # ---------- security ----------
     def _origin_ok(self) -> bool:
         origin = self.headers.get("Origin")
         return origin is None or origin in config.ALLOWED_ORIGINS
 
-    def _host_ok(self) -> bool:
+    def _host_ok(self, allow_callback_host: bool = False) -> bool:
         host = (self.headers.get("Host") or "").lower()
-        return host in {f"127.0.0.1:{config.PORT}", f"localhost:{config.PORT}"}
+        if host.endswith(":443"):
+            host = host[:-4]
+        elif host.endswith(":80"):
+            host = host[:-3]
+        if host in config.ALLOWED_HOSTS:
+            return True
+        if not allow_callback_host:
+            return False
+        if _netloc_host(config.OAUTH_REDIRECT_URI) == host:
+            return True
+        # An HTTPS tunnel may forward a provider callback from a host that one of
+        # the configured OAuth apps registered as its redirect URI. Only the
+        # callback endpoint may use that host; session/data routes stay local.
+        if not CONN:
+            return False
+        try:
+            rows = CONN.execute("SELECT redirect_uri FROM social_oauth_apps WHERE redirect_uri <> ''").fetchall()
+        except Exception:  # noqa: BLE001
+            return False
+        return any(_netloc_host(r["redirect_uri"]) == host for r in rows)
 
     def _cors(self):
         origin = self.headers.get("Origin")
@@ -61,13 +101,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Headers", "Content-Type, X-SocialAI-Token")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
-    def _send(self, code: int, payload, raw: bytes | None = None, ctype="application/json"):
+    def _send(self, code: int, payload, raw: bytes | None = None, ctype="application/json", headers: dict | None = None):
         body = raw if raw is not None else json.dumps(payload, default=str).encode()
         self.send_response(code)
         self._cors()
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -117,6 +159,30 @@ class Handler(BaseHTTPRequestHandler):
             if not self._guard(need_token=False):
                 return
             return self._send(200, {"token": TOKEN})
+        if path == "/api/oauth/callback":
+            # A top-level provider redirect carries no session token. The one-time
+            # state parameter is the authorization proof, and Host/Origin stay guarded.
+            if not self._host_ok(allow_callback_host=True):
+                return self._err(403, "Bad host.")
+            if not self._origin_ok():
+                return self._err(403, "This page is not allowed to use the local backend.")
+            params = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items() if v}
+            try:
+                code, page = oauth.complete(CONN, params)
+            except oauth.OAuthError as e:
+                code, page = 400, oauth.callback_page(False, "Could not complete the connection", str(e))
+            except Exception:  # noqa: BLE001
+                log.exception("oauth callback failed")
+                code, page = 500, oauth.callback_page(
+                    False, "Unexpected error", "The local backend could not complete the sign-in."
+                )
+            return self._send(
+                code,
+                None,
+                raw=page.encode("utf-8"),
+                ctype="text/html; charset=utf-8",
+                headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"},
+            )
         if not self._guard():
             return
         if path == "/api/backup/download":
@@ -164,6 +230,8 @@ class Handler(BaseHTTPRequestHandler):
                     safety = db.restore_from(CONN, tmp)
                 finally:
                     tmp.unlink(missing_ok=True)
+                # The backup has no encrypted tokens; never show stale "connected".
+                oauth.reconcile_connections(CONN)
                 return self._send(200, {"ok": True, "safety_backup": str(safety)})
             if path == "/api/secrets":
                 d = self._json()
@@ -172,6 +240,30 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Key too long.")
                 secrets_store.set_key(pid, key)
                 return self._send(200, {"ok": True, "hint": secrets_store.mask(key)})
+            if path == "/api/oauth/app":
+                return self._send(200, {"ok": True, "app": oauth.save_app(CONN, self._json())})
+            if path == "/api/oauth/app/delete":
+                d = self._json()
+                return self._send(
+                    200, oauth.delete_app(CONN, str(d.get("platform") or ""), d.get("client_id") or None)
+                )
+            if path == "/api/oauth/start":
+                d = self._json()
+                url = oauth.begin(CONN, str(d["connection_id"]))
+                return self._send(200, {"ok": True, "authorize_url": url})
+            if path == "/api/oauth/refresh":
+                d = self._json()
+                return self._send(200, oauth.refresh(CONN, str(d["connection_id"])))
+            if path == "/api/oauth/test":
+                d = self._json()
+                return self._send(200, oauth.test_connection(CONN, str(d["connection_id"])))
+            if path == "/api/oauth/disconnect":
+                d = self._json()
+                return self._send(200, oauth.disconnect(CONN, str(d["connection_id"])))
+            if path == "/api/oauth/cleanup-client":
+                d = self._json()
+                removed = oauth.cleanup_client(CONN, str(d["client_id"]))
+                return self._send(200, {"ok": True, "connections": removed})
             if path == "/api/ai/models":
                 d = self._json()
                 row = CONN.execute("SELECT * FROM ai_providers WHERE id = ?", (d["provider_id"],)).fetchone()
@@ -198,6 +290,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"ok": False, "error": str(e), "kind": e.kind, "status": e.status})
         except PermissionError as e:
             return self._err(403, str(e))
+        except oauth.OAuthError as e:
+            return self._err(400, str(e))
         except __import__("sqlite3").IntegrityError as e:
             return self._err(409, f"Conflict: {e}")
         except (ValueError, KeyError, json.JSONDecodeError) as e:
@@ -213,18 +307,38 @@ def process_due_posts():
     Never pretends a post was published."""
     with db._lock:
         rows = CONN.execute(
-            "SELECT id FROM posts WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ?",
+            "SELECT p.id, p.platform, c.status AS connection_status "
+            "FROM posts p LEFT JOIN social_connections c "
+            "  ON c.client_id = p.client_id AND c.platform = p.platform "
+            "WHERE p.status = 'scheduled' AND p.scheduled_at IS NOT NULL AND p.scheduled_at <= ?",
             (now_iso(),),
         ).fetchall()
         for r in rows:
+            if r["connection_status"] == "connected":
+                reason = f"OAuth for {r['platform'] or 'this platform'} is connected, but automatic publishing is not enabled yet."
+            else:
+                reason = f"No OAuth connection for {r['platform'] or 'this platform'}. Connect the client's account before this post can publish."
             CONN.execute(
                 "UPDATE posts SET status='failed', fail_reason=?, updated_at=? WHERE id=?",
-                (
-                    "No official social OAuth credentials are configured. Post was not published.",
-                    now_iso(),
-                    r["id"],
-                ),
+                (reason, now_iso(), r["id"]),
             )
+
+
+def refresh_expiring_connections():
+    """Renew tokens that expire soon. Failures are surfaced, never hidden."""
+    soon = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    with db._lock:
+        rows = CONN.execute(
+            "SELECT id FROM social_connections WHERE status = 'connected' "
+            "AND expires_at IS NOT NULL AND expires_at <= ?",
+            (soon,),
+        ).fetchall()
+    for r in rows:
+        try:
+            oauth.refresh(CONN, r["id"])
+            log.info("refreshed OAuth token for connection %s", r["id"])
+        except Exception:  # noqa: BLE001
+            log.warning("OAuth token refresh failed for connection %s", r["id"], exc_info=True)
 
 
 def worker_loop(stop: threading.Event):
@@ -234,6 +348,7 @@ def worker_loop(stop: threading.Event):
         ts = now_iso()
         try:
             process_due_posts()
+            refresh_expiring_connections()
             with db._lock:
                 CONN.execute(
                     "INSERT INTO scheduler_jobs(id, name, heartbeat_at, last_status) VALUES ('worker','worker',?, 'ok') "
@@ -258,6 +373,9 @@ def serve():
     CONN = db.connect()
     applied = db.migrate(CONN)
     log.info("database %s ready (applied: %s)", config.DB_PATH, applied or "none")
+    stale = oauth.reconcile_connections(CONN)
+    if stale:
+        log.warning("marked %s OAuth connection(s) as needing reconnection (tokens absent)", stale)
     stop = threading.Event()
     threading.Thread(target=worker_loop, args=(stop,), daemon=True).start()
     httpd = ThreadingHTTPServer((config.HOST, config.PORT), Handler)

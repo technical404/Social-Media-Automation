@@ -158,4 +158,27 @@ describe("local SQLite schema", () => {
     sqlRun(db, "DELETE FROM clients WHERE id = 'cl1'");
     expect(sqlAll(db, "SELECT * FROM client_social_handles").length).toBe(0);
   });
+
+  it("keeps one OAuth app per platform scope and one connection per client and platform", async () => {
+    const db = await freshDb();
+    db.run("INSERT INTO clients(id, name) VALUES ('cl1','Acme')");
+    db.run("INSERT INTO social_oauth_apps(id, platform, app_client_id) VALUES ('a1','facebook','workspace-app')");
+    // one workspace app per platform
+    expect(() => db.run("INSERT INTO social_oauth_apps(id, platform, app_client_id) VALUES ('a2','facebook','second-app')")).toThrow(/UNIQUE/);
+    // a client-specific app may exist alongside the workspace app
+    db.run("INSERT INTO social_oauth_apps(id, platform, client_id, app_client_id) VALUES ('a3','facebook','cl1','client-app')");
+    expect(() => db.run("INSERT INTO social_oauth_apps(id, platform, client_id, app_client_id) VALUES ('a4','facebook','cl1','another-client-app')")).toThrow(/UNIQUE/);
+
+    db.run("INSERT INTO social_connections(id, client_id, platform) VALUES ('s1','cl1','facebook')");
+    expect(() => db.run("INSERT INTO social_connections(id, client_id, platform) VALUES ('s2','cl1','facebook')")).toThrow(/UNIQUE/);
+    const conn = sqlAll<{ status: string; token_type: string }>(db, "SELECT status, token_type FROM social_connections WHERE id = 's1'");
+    expect(conn[0]).toEqual({ status: "not_connected", token_type: "Bearer" });
+    expect(() => db.run("INSERT INTO social_connections(id, client_id, platform, status) VALUES ('s3','cl1','linkedin','connected_fake')")).toThrow(/CHECK/);
+
+    // removing the client removes its app and connection
+    sqlRun(db, "DELETE FROM clients WHERE id = 'cl1'");
+    expect(sqlAll(db, "SELECT * FROM social_connections").length).toBe(0);
+    expect(sqlAll(db, "SELECT * FROM social_oauth_apps WHERE client_id IS NOT NULL").length).toBe(0);
+    expect(sqlAll(db, "SELECT * FROM social_oauth_apps WHERE client_id IS NULL").length).toBe(1);
+  });
 });

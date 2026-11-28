@@ -15,6 +15,13 @@ MIGRATIONS_DIR = ROOT / "db" / "migrations"
 HOST = "127.0.0.1"  # never listen on the network
 PORT = int(os.environ.get("SOCIALAI_BACKEND_PORT", "8765"))
 FRONTEND_PORT = int(os.environ.get("SOCIALAI_FRONTEND_PORT", "8080"))
+# The provider redirects here. Register this exact URL in each developer app.
+OAUTH_REDIRECT_URI = os.environ.get(
+    "SOCIALAI_OAUTH_REDIRECT_URI", f"http://127.0.0.1:{PORT}/api/oauth/callback"
+)
+# Hosts the local API accepts. A public tunnel host is accepted only on the
+# OAuth callback endpoint (see server._host_ok), never on data routes.
+ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 ALLOWED_ORIGINS = {
     o.strip()
     for o in os.environ.get(

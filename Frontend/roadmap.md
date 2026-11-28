@@ -18,7 +18,8 @@
 - [ ] Full AI Provider Manager, model fetching, fallback engine, task routing (8–11)
 - [ ] AI Content Studio, campaigns, post approval workflow (12–14); bulk "Generate content"/"Assign campaign" join here — old cloud Studio/Approvals/Schedule pages were retired; their 2 posts are in the export
 - [ ] Media library, ComfyUI (15)
-- [ ] Social account OAuth + real publishing (16–17) — blocked: needs the user's developer app credentials
+- [x] Social account OAuth for all platforms, per client (16) — backend token exchange, DPAPI-encrypted secrets/tokens, workspace + per-client apps
+- [ ] Real publishing adapters (17) — OAuth is connected; per-platform post/media upload and retries still need the user's developer app credentials to verify
 - [ ] Background scheduler for posts, retries (18), diagnostics (19), full E2E (20)
 - [ ] Match AI Provider page to reference screenshot — blocked: screenshot not attached yet
 - [ ] Verify on a real Windows 11 PC — needs the user to run `python main.py --check`

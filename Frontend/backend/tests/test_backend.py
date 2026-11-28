@@ -21,13 +21,15 @@ BASE = "http://127.0.0.1:8799"
 ORIGIN = "http://localhost:8080"
 
 
-def call(path, body=None, token=None, origin=ORIGIN, raw=None, ctype="application/json"):
+def call(path, body=None, token=None, origin=ORIGIN, raw=None, ctype="application/json", host=None):
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
     req = urllib.request.Request(BASE + path, data=data, method="POST" if data is not None else "GET")
     if origin:
         req.add_header("Origin", origin)
     if token:
         req.add_header("X-SocialAI-Token", token)
+    if host:
+        req.add_header("Host", host)
     if data is not None:
         req.add_header("Content-Type", ctype)
     try:
@@ -35,7 +37,10 @@ def call(path, body=None, token=None, origin=ORIGIN, raw=None, ctype="applicatio
             b = r.read()
             return r.status, (json.loads(b) if r.headers.get("Content-Type") == "application/json" else b)
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or b"{}")
+        body = e.read()
+        if e.headers.get("Content-Type") == "application/json":
+            return e.code, json.loads(body or b"{}")
+        return e.code, body
 
 
 class BackendTest(unittest.TestCase):
@@ -56,7 +61,7 @@ class BackendTest(unittest.TestCase):
         self.assertIn(h["schema"], (
             "001_init", "002_content", "003_provider_comments", "004_clients",
             "005_client_calendars", "006_global_calendar", "007_client_event_ownership",
-            "008_topic_calendar", "009_client_social_handles",
+            "008_topic_calendar", "009_client_social_handles", "010_social_oauth",
         ))
         self.assertTrue(h["worker"]["running"])
 
@@ -108,6 +113,71 @@ class BackendTest(unittest.TestCase):
     def test_restore_rejects_non_sqlite(self):
         code, _ = call("/api/backup/restore", token=self.token, raw=b"not a db" * 10, ctype="application/octet-stream")
         self.assertEqual(code, 400)
+
+    def test_oauth_app_secret_stays_out_of_the_database_and_api(self):
+        t = self.token
+        call("/api/db/query", {"sql": "INSERT INTO clients(id,name) VALUES ('oauth-client','OAuth Client')", "params": []}, t)
+        code, r = call(
+            "/api/oauth/app",
+            {
+                "platform": "linkedin",
+                "client_id": None,
+                "app_client_id": "li-app-id",
+                "client_secret": "li-super-secret",
+                "redirect_uri": "http://127.0.0.1:8799/api/oauth/callback",
+            },
+            t,
+        )
+        self.assertEqual(code, 200)
+        self.assertNotIn("li-super-secret", json.dumps(r))
+        self.assertEqual(r["app"]["has_client_secret"], 1)
+        _, q = call("/api/db/query", {"sql": "SELECT * FROM social_oauth_apps", "params": []}, t)
+        self.assertNotIn("li-super-secret", json.dumps(q))
+
+        call(
+            "/api/db/query",
+            {"sql": "INSERT INTO social_connections(id,client_id,platform) VALUES ('conn-1','oauth-client','linkedin')", "params": []},
+            t,
+        )
+        code, started = call("/api/oauth/start", {"connection_id": "conn-1"}, t)
+        self.assertEqual(code, 200)
+        self.assertIn("linkedin.com/oauth/v2/authorization", started["authorize_url"])
+        self.assertIn("state=", started["authorize_url"])
+
+        code, _ = call("/api/oauth/app/delete", {"platform": "linkedin", "client_id": None}, t)
+        self.assertEqual(code, 200)
+        _, q = call(
+            "/api/db/query",
+            {"sql": "SELECT * FROM social_oauth_apps WHERE platform = 'linkedin'", "params": []},
+            t,
+        )
+        self.assertEqual(q["rows"], [])
+
+    def test_oauth_callback_rejects_unknown_state(self):
+        code, page = call("/api/oauth/callback?state=unknown&code=x", origin=None)
+        self.assertEqual(code, 400)
+        self.assertIn(b"expired", page.lower())
+
+    def test_oauth_tunnel_host_only_reaches_the_callback(self):
+        code, _ = call(
+            "/api/oauth/app",
+            {
+                "platform": "pinterest",
+                "client_id": None,
+                "app_client_id": "pin-app-id",
+                "client_secret": "pin-secret",
+                "redirect_uri": "https://tunnel.example/api/oauth/callback",
+            },
+            self.token,
+        )
+        self.assertEqual(code, 200)
+        # The tunnel host is not a general data host.
+        code, _ = call("/api/session", host="tunnel.example")
+        self.assertEqual(code, 403)
+        # It is accepted on the callback endpoint (unknown state -> 400, not 403).
+        code, page = call("/api/oauth/callback?state=unknown&code=x", origin=None, host="tunnel.example")
+        self.assertEqual(code, 400)
+        self.assertIn(b"expired", page.lower())
 
 
 class AuthTest(unittest.TestCase):
